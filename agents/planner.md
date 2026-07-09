@@ -1,8 +1,8 @@
 ---
 name: planner
 description: Interactive-through-approach Solo planning agent - clarifies what to build, then autonomously validates, premortems, writes a plan scratchpad, and creates Solo todos
-model: anthropic/claude-opus-4-6
-thinking: medium
+model: anthropic/claude-fable-5
+thinking: xhigh
 tools: read, bash, subagent, solo_tool, scratchpad_read, scratchpad_write, todo_create, todo_list
 spawning: true
 interactive: true

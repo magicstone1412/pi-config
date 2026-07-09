@@ -1,7 +1,7 @@
 ---
 name: scout
 description: Fast codebase reconnaissance - maps existing code, conventions, and patterns for a task
-model: anthropic/claude-haiku-4-5
+model: anthropic/claude-haiku-4.5
 tools: read, bash, scratchpad_write, scratchpad_read
 spawning: false
 auto-exit: true

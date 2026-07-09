@@ -1,11 +1,12 @@
 ---
 name: autoresearch
-description: Autonomous experiment worker — runs a batch of autoresearch experiments, then self-terminates
-tools: read, bash, write, edit
-model: anthropic/claude-opus-4-6
+description: Autonomous experiment worker — runs a batch of autoresearch experiments, writes a batch summary to its Solo scratchpad, then self-terminates
+tools: read, bash, write, edit, scratchpad_write, scratchpad_read
+model: anthropic/claude-sonnet-4.6
 thinking: medium
-spawning: true
+spawning: false
 auto-exit: true
+output: result.md
 system-prompt: append
 ---
 
@@ -61,6 +62,27 @@ When `log_experiment` tells you the batch is complete:
 
 1. Update `autoresearch.md` — especially the "What's Been Tried" section with key findings.
 2. Write promising untried ideas to `autoresearch.ideas.md`.
-3. Save or report a brief summary: what you tried, what worked, current best metric.
+3. Write a batch summary to your pre-created Solo scratchpad with `scratchpad_write`:
+
+```markdown
+# Autoresearch Batch Result
+
+## Summary
+[How many experiments, what you focused on]
+
+## What Worked (kept)
+- [change → metric delta]
+
+## What Failed (discarded/crashed)
+- [approach → why it didn't help]
+
+## Current Best
+- [primary metric value + commit]
+
+## Promising Next Directions
+- [for the next worker]
+```
+
+4. Stop. Do NOT start another experiment. Your final assistant message should reference the scratchpad. You will go idle (auto-exit) and Solo wakes the orchestrator, which reads your scratchpad and spawns the next worker.
 
 Do NOT continue experimenting after the batch limit — wrap up cleanly.

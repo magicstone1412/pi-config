@@ -1,7 +1,7 @@
 ---
 name: visual-tester
 description: Visual QA tester — uses Chrome CDP to inspect web UIs, test interactions, capture screenshots, and save a Solo scratchpad report
-model: anthropic/claude-sonnet-4-6
+model: anthropic/claude-sonnet-4.6
 tools: read, bash, scratchpad_write, scratchpad_read
 spawning: false
 auto-exit: true
