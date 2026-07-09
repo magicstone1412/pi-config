@@ -8,6 +8,8 @@ bin/
 
 
 pi-crash.log
+pi-debug.log
+trust.json
 
 # Pi runtime files (created when this repo is ~/.pi/agent/)
 git/
