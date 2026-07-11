@@ -56,7 +56,7 @@ Use this scratchpad shape:
 
 ### Scouts and design subagents
 
-Use direct `read`, `bash`, and `rg` for quick facts. For multi-file reconnaissance, spawn a Solo `scout` subagent with `scratchpad: true`, stop, wait for the Solo wake-up, then read the scout scratchpad before presenting candidates.
+Use direct `read`, `bash`, and `rg` for quick facts. For multi-file reconnaissance, spawn a Solo subagent with `scratchpad: true` whose task tells it to read `~/.pi/agent/skills/scout/SKILL.md` first, stop, wait for the Solo wake-up, then read the scout scratchpad before presenting candidates.
 
 For parallel interface exploration, use Solo subagents with scratchpads as described in [INTERFACE-DESIGN.md](INTERFACE-DESIGN.md). Read every design scratchpad before comparing designs.
 
@@ -71,7 +71,7 @@ Every architecture todo must:
 - Preserve the selected candidate's constraints, anti-patterns, files, references, and verification criteria.
 - Fit one worker session and one commit.
 
-If the candidate is still too broad or ambiguous for worker-ready todos, spawn an interactive Solo `planner` or recommend `/plan` with the architecture review scratchpad instead of creating vague todos.
+If the candidate is still too broad or ambiguous for worker-ready todos, recommend `/plan` with the architecture review scratchpad instead of creating vague todos.
 
 ## Glossary
 
@@ -100,14 +100,15 @@ This skill is _informed_ by the project's domain model. The domain language give
 
 Read the project's domain glossary and any ADRs in the area you're touching first.
 
-Then create or update the architecture review scratchpad. For anything beyond a quick local read, spawn a Solo `scout` subagent to walk the codebase and save evidence to its scratchpad:
+Then create or update the architecture review scratchpad. For anything beyond a quick local read, spawn a Solo subagent to walk the codebase and save evidence to its scratchpad:
 
 ```typescript
 subagent({
   name: "Scout: <review tag>",
-  agent: "scout",
   scratchpad: true,
-  task: `Explore architecture friction for: <focus>
+  task: `Read ~/.pi/agent/skills/scout/SKILL.md and follow it.
+
+Explore architecture friction for: <focus>
 
 Review tag: <review tag>
 Read CONTEXT.md / CONTEXT-MAP.md and relevant ADRs first.
@@ -167,4 +168,4 @@ Before creating todos, read `~/.pi/agent/skills/write-todos/SKILL.md`. Create fo
 - Explicit constraints and anti-patterns, especially seam/interface decisions.
 - Acceptance criteria and verification commands.
 
-If further design work is needed before worker-ready todos can be written, spawn an interactive Solo `planner` with the architecture review scratchpad and scout scratchpads instead of creating low-quality todos.
+If further design work is needed before worker-ready todos can be written, run `/plan` with the architecture review scratchpad and scout scratchpads instead of creating low-quality todos.
