@@ -168,12 +168,6 @@ subagent({ name: "Reviewer: Auth", scratchpad: true, task: "Read ~/.pi/agent/ski
 
 Run workers sequentially in a shared git repo. Parallel read-only subagents (scouts, research) are fine.
 
-#### Slash Commands
-
-- `/plan <what to build>` — full planning + execution workflow (scout → interactive planner → workers → review).
-- `/answer` — collect answers for grouped questions.
-- `/cost` — show API cost summary.
-
 #### When NOT to Delegate
 
 - Quick fixes under two minutes.

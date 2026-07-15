@@ -1,5 +1,5 @@
 {
-  "lastChangelogVersion": "0.80.5",
+  "lastChangelogVersion": "0.80.7",
   "defaultProvider": "openrouter",
   "defaultModel": "anthropic/claude-fable-5",
   "defaultThinkingLevel": "high",
@@ -9,7 +9,7 @@
     "git:github.com/HazAT/pi-parallel",
     "git:github.com/HazAT/pi-solo"
   ],
-  "hideThinkingBlock": false,
+  "hideThinkingBlock": true,
   "enabledModels": [
     "openrouter/anthropic/claude-sonnet-4.6",
     "openrouter/anthropic/claude-opus-4.8",
