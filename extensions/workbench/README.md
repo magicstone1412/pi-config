@@ -30,11 +30,46 @@ The coordinating Pi session creates a run. When it is coordinating a repository 
 run_workspace({ action: "join", runId: "...", role: "scout", label: "run-scout-api" })
 ```
 
-Joining persists membership in the Pi session. Subsequent artifact and todo calls automatically use that run, including after session resume.
+Joining persists membership in the Pi session. Subsequent artifact and todo calls automatically use that run, including after session resume. The additive footer status uses a compact `WB` prefix, strips the run timestamp for display, bounds the run slug, and shows role/todo identity without repeating a redundant run-scoped SC label. A nonredundant label suffix remains visible. The status refreshes when membership or todo assignment changes and clears when no valid membership can be restored; persisted membership values are unchanged.
 
 Do not infer run membership from the active SC view. SC labels and coordination-state are runtime controls; Workbench files are durable state.
 
-## Tools
+## Native SC execution tools
+
+Both native tools require active Workbench membership. They are focused execution primitives, not orchestration policy: callers still perform raw SC capability/model preflight and choose prompts, roles, verified models, sequencing, and durable completion criteria. Raw SC also remains necessary for teams, send/interrupt/stop, review commands, and unsupported launch topologies.
+
+### `launch_agent`
+
+```text
+launch_agent({ label, prompt, model?, reasoning? })
+```
+
+Launches one labeled Pi terminal with `sc layout run tabs --provider pi --ui terminal --active keep` in Pi's current working directory. The prompt is passed directly as one argv value, including when multiline; no shell interpolation or temporary prompt file is used. Optional model and reasoning values must be verified by the coordinator before the call.
+
+The result preserves SC's raw JSON response and exposes only identifiers SC actually returned: label, selector, stable target ID, session ID, and conversation ID. Model-facing JSON is capped at Pi's 50 KB / 2,000-line custom-tool limits, with identifiers kept in the visible prefix. If truncated, the result marks that complete structured launch data remains in tool details. A successful call means dispatch was accepted, not that the agent completed its Workbench assignment.
+
+### `wait_for_agent`
+
+```text
+wait_for_agent({ target, timeoutMs?, last? })
+```
+
+Runs `sc agent wait --idle` for the exact target. Only after that succeeds, it runs `sc agent read` for the same target. `timeoutMs` is passed to SC's idle wait and `last` limits transcript entries read. The pending tool update represents only the in-flight SC wait.
+
+Nonzero SC exits, malformed JSON, timeouts, and structured `target_error` responses fail the tool. Cancellation is forwarded to launch, wait, and read processes. Model-facing wait/read JSON is capped at Pi's 50 KB / 2,000-line custom-tool limits while complete structured data remains in tool details. A truncation marker instructs the coordinator to call `wait_for_agent` again with a smaller `last` value for a bounded transcript. Successful wait/read output remains runtime evidence only: callers must separately verify the Workbench todo and artifact before advancing.
+
+A coordinator's supported sequential path is therefore:
+
+```text
+launch_agent({ label: "RUN_ID-worker-TODO-001", prompt: "<complete role prompt>" })
+wait_for_agent({ target: "label:RUN_ID-worker-TODO-001", timeoutMs: 120000, last: 20 })
+todo({ action: "get", id: "TODO-001" })
+read_artifact({ path: "artifacts/RUN_ID-worker-TODO-001/result.md" })
+```
+
+The first call confirms dispatch only, and the second performs SC wait + read only. The coordinator advances only after the todo and artifact provide the required durable acceptance evidence.
+
+## Durable Workbench tools
 
 - `run_workspace` — create, join, inspect, list, or update runs.
 - `write_artifact` — write or append `plan.md` and files beneath the run root.

@@ -181,7 +181,20 @@ Use `--if-version` for competing writers. Never treat coordination-state, target
 
 Every launched Pi role prompt must contain the real task plus the exact Workbench run ID, role, SC label, and optional todo ID. It must tell the role to read its migrated skill, join that run first, write its exact durable artifact, and avoid launching additional agents. Include any commit constraint explicitly.
 
-Use long prompt files when needed and always remove them after the launch attempt. `sc layout run --from-file` consumes JSONL, not plaintext: every line must contain `label` and `initial_message` (plus optional `system_prompt`). Build it with `jq` so multiline prompts remain valid JSON. For delegated Pi workers, scouts, and reviewers, terminal mode is the operational default; use chat only when the human explicitly requests that app UI. For role-specific model/reasoning selection, choose only values verified by `sc chat providers --json`:
+For the supported individual Pi terminal shape, prefer the Workbench-native tool after joining or creating the run:
+
+```text
+launch_agent({
+  label: "RUN_ID-worker-TODO-001",
+  prompt: "<complete multiline role prompt>",
+  model: "VERIFIED_MODEL_ID",
+  reasoning: "VERIFIED_LEVEL"
+})
+```
+
+The tool executes `sc layout run tabs --provider pi --ui terminal --active keep` with direct argv, so the complete multiline prompt remains one value. It returns SC's raw response and only the identifiers SC actually supplied. Capture the returned label/selector, stable target ID, and available conversation/session IDs. Successful launch means only that dispatch was accepted.
+
+Keep raw `sc layout run` for unsupported providers, UI modes, layouts, batch inputs, or when the native tool is unavailable. For raw launches, use long prompt files when needed and always remove them after the attempt. `--from-file` consumes JSONL, not plaintext: every line must contain `label` and `initial_message` (plus optional `system_prompt`). Build it with `jq` so multiline prompts remain valid JSON:
 
 ```bash
 set -e
@@ -203,9 +216,7 @@ rm -f "$prompt_file"
 trap - EXIT
 ```
 
-A provider being listed in layout capabilities does not prove its chat configuration or requested model is enabled. Verify both surfaces. One `sc layout run` invocation has one provider/model/reasoning selection; launch roles separately when they need different settings.
-
-Capture the launch selector, stable target ID, label, and conversation/session ID. Successful launch means only that dispatch was accepted.
+A provider being listed in layout capabilities does not prove its chat configuration or requested model is enabled. Verify both surfaces before passing optional model/reasoning values. One raw `sc layout run` invocation has one provider/model/reasoning selection; launch roles separately when they need different settings.
 
 ## Independent Fan-Out
 
@@ -243,7 +254,7 @@ Process claimable source-writing todos one at a time unless explicit managed wor
 For each todo:
 
 1. Read the todo and its dependencies.
-2. Launch one terminal-mode Pi worker with `--provider pi --ui terminal --active keep` and a deterministic label. Its prompt must include:
+2. Launch one terminal-mode Pi worker with `launch_agent` and a deterministic label. Its complete prompt must include:
 
    ```text
    Read ~/.pi/agent/skills/worker/SKILL.md and follow it.
@@ -256,29 +267,22 @@ For each todo:
    Do not create a git commit unless this todo explicitly requests one.
    ```
 
-3. Wait for that exact target to settle:
+3. Collect the same exact target with the native wait/read primitive:
 
-   ```bash
-   sc agent wait --to label:WORKER_LABEL --idle --timeout-ms 120000 \
-     --worktree "$PWD" --output json
+   ```text
+   wait_for_agent({ target: "label:WORKER_LABEL", timeoutMs: 120000, last: 20 })
    ```
 
-4. Read from the same target:
+   `wait_for_agent` runs `sc agent wait --idle` and then `sc agent read` against that same target. If the native tool is unavailable or the target shape is unsupported, use those raw commands in the same order with `--worktree "$PWD" --output json`.
+4. Check `target_error`, provider failure, incomplete output, and timeouts in the returned SC wait/read details.
+5. Read the todo with `todo({ action: "get", id: "TODO-NNN" })` and read `artifacts/<worker-label>/result.md`.
+6. Advance only when the todo is durably `done`, the result artifact exists, and its verification evidence satisfies the acceptance criteria.
 
-   ```bash
-   sc agent read --to label:WORKER_LABEL --last 20 \
-     --worktree "$PWD" --output json
-   ```
-
-5. Check `target_error`, provider failure, incomplete output, and timeouts.
-6. Read the todo with `todo({ action: "get", id: "TODO-NNN" })` and read `artifacts/<worker-label>/result.md`.
-7. Advance only when the todo is durably `done`, the result artifact exists, and its verification evidence satisfies the acceptance criteria.
-
-A successful launch/send, an idle target, or a confident chat response is never completion. If clarification is needed in an existing worker session, use `sc agent send`, then repeat wait → read → durable verification; do not launch a replacement merely for a follow-up. If the worker blocks, inspect the recorded reason and fix missing plan/todo context before retrying. Never mark the todo done on the worker’s behalf to hide a failed handoff.
+A successful launch/send, an idle target, or a confident chat response is never completion. If clarification is needed in an existing worker session, use raw `sc agent send`, then repeat native wait/read (or raw wait → read when required) → durable verification; do not launch a replacement merely for a follow-up. If the worker blocks, inspect the recorded reason and fix missing plan/todo context before retrying. Never mark the todo done on the worker’s behalf to hide a failed handoff.
 
 ## Final Review
 
-After all implementation todos are durably done, launch one labeled terminal-mode Pi reviewer sequentially with `--provider pi --ui terminal`. Its prompt must supply the exact run ID, role `reviewer`, label, plan path, relevant todo IDs, worker artifact paths, and `artifacts/<reviewer-label>/review.md`, and require `~/.pi/agent/skills/review/SKILL.md`. Do not launch the reviewer concurrently with work it must assess.
+After all implementation todos are durably done, launch one labeled terminal-mode Pi reviewer sequentially with `launch_agent`. Its prompt must supply the exact run ID, role `reviewer`, label, plan path, relevant todo IDs, worker artifact paths, and `artifacts/<reviewer-label>/review.md`, and require `~/.pi/agent/skills/review/SKILL.md`. Do not launch the reviewer concurrently with work it must assess. Collect that exact reviewer with `wait_for_agent`; use raw launch/wait/read only when the native tools do not support the required target or topology.
 
 For every exact `/plan` run, state this launch contract explicitly:
 
@@ -303,10 +307,22 @@ In SC-review mode, the reviewer must:
 5. Re-run `review-list` and `review-get` for every replied-to, resolved, or newly added ID.
 6. Only after SC verification, write `artifacts/<reviewer-label>/review.md` with initial open IDs/classifications, replies, resolutions, published IDs, verified states, remaining actionable IDs, commands/results, and verdict.
 
-Wait, read, check target errors, and read the durable review artifact. A review response, idle target, or SC comment without that artifact is incomplete. In SC-review mode, independently repeat `review-list`/`review-get` verification and require Workbench and SC evidence to agree.
+Use `wait_for_agent`, check its raw SC wait/read details for target errors, and read the durable review artifact. A review response, idle target, or SC comment without that artifact is incomplete. In SC-review mode, independently repeat the raw `review-list`/`review-get` verification and require Workbench and SC evidence to agree.
 
-- `APPROVED`: continue only when the artifact exists, no actionable comment remains open, and the current run has a verified `[APPROVED]` entry. An open approval entry or unrelated historical comment is not itself an actionable finding.
+- `APPROVED`: continue only when the artifact exists, no actionable comment remains open, and the current run has a verified `[APPROVED]` entry. An open approval entry or unrelated historical comment is not itself an actionable finding. Leave approval entries open during review; the conditional post-commit reconciliation below resolves them only after a requested commit succeeds.
 - `NEEDS CHANGES`: turn actionable P0/P1 findings into self-contained dependent Workbench todos, run workers sequentially, then send the existing reviewer a follow-up for re-review. It must verify fixes, reply to and resolve only addressed applicable comments, leave unresolved findings open, publish the refreshed verdict, and rewrite the artifact with current IDs/states. Repeat wait → read → artifact and SC verification. Handle P2 only when required by ISC or clearly worth the scoped effort; do not expand scope for P3 polish.
+
+## Post-Approval Commit Reconciliation
+
+Run this section only when the human requested a commit. Do not resolve approval entries before the commit exists.
+
+1. Confirm the final Workbench review verdict is `APPROVED` and no actionable comment remains open.
+2. Read and follow `~/.pi/agent/skills/commit/SKILL.md`, create the requested commit without skipping hooks, and verify the resulting commit SHA.
+3. After the commit succeeds, run `review-list --status open` and `review-get` for every returned ID. For every still-open comment whose body begins `[APPROVED]`, set it to `resolved`, then verify that exact status with `review-get`. This post-commit cleanup applies to all open approval entries, including historical approvals; never resolve an actionable finding or any nonapproval thread through this cleanup rule.
+4. Re-run `review-list --status open` and verify that no `[APPROVED]` entry remains open while unrelated nonapproval threads retain their prior state.
+5. Write `artifacts/<coordinator-label>/post-commit-review-cleanup.md` with the commit SHA, every resolved approval ID, verification commands/results, and remaining open IDs/classifications.
+
+A commit is not complete for the `/plan` workflow until this requested post-commit approval cleanup and durable verification record both exist.
 
 ## Steering, Cleanup, and Recovery
 
@@ -342,7 +358,8 @@ Before reporting completion:
 3. Read every expected scout, worker, and reviewer artifact.
 4. Confirm every SC launch/send was followed by wait and read, with no unresolved target/provider errors.
 5. Run the plan’s targeted tests/build/typecheck and inspect `git status --short` plus the relevant diff.
-6. Confirm the final Workbench review verdict. For exact `/plan` and any other SC-review flow, re-run `review-list` and `review-get` for every relevant ID, confirm the final states match the artifact, confirm no actionable comments remain open for an `APPROVED` verdict, and verify the current run's `[APPROVED]` entry. SC state without the Workbench artifact is incomplete, and artifact-only review cannot complete `/plan`.
-7. Confirm that no unrequested worktree, unrelated review-thread, cleanup, or commit operation occurred.
+6. Confirm the final Workbench review verdict. For exact `/plan` and any other SC-review flow, re-run `review-list` and `review-get` for every relevant ID, confirm the final states match the review artifact, confirm no actionable comments remain open for an `APPROVED` verdict, and verify the current run's `[APPROVED]` entry. SC state without the Workbench artifact is incomplete, and artifact-only review cannot complete `/plan`.
+7. If the human requested a commit, verify the commit SHA, read `artifacts/<coordinator-label>/post-commit-review-cleanup.md`, re-run `review-list`/`review-get`, and confirm every open `[APPROVED]` entry was resolved only after the commit while nonapproval threads were left unchanged.
+8. Confirm that no unrequested worktree, unrelated nonapproval review-thread, cleanup, or commit operation occurred.
 
-Report the Workbench run ID, completed todo IDs, verification commands/results, final review verdict, relevant SC review IDs/states, remaining risks, and any UI sessions intentionally left open. Evidence—not dispatch—is the completion boundary.
+Report the Workbench run ID, completed todo IDs, verification commands/results, final review verdict, relevant SC review IDs/states, commit SHA when requested, resolved approval IDs, remaining risks, and any UI sessions intentionally left open. Evidence—not dispatch—is the completion boundary.

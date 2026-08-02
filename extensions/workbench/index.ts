@@ -11,11 +11,20 @@ import { Type } from "typebox";
 import path from "node:path";
 import { listArtifacts, readArtifact, resolveArtifactPath, writeArtifact } from "./artifacts.ts";
 import {
+	agentName,
+	launchAgentResultText,
+	launchAgentToolResult,
 	runWorkspaceResultText,
+	taskLineCount,
+	taskPreview,
 	todoResultText,
 	toolResultText,
+	waitForAgentResultText,
+	waitForAgentToolResult,
+	workbenchStatusText,
 } from "./rendering.ts";
 import { createRun, getRun, joinRun, listRuns, updateRun } from "./runs.ts";
+import { launchAgent, waitForAgent, type ScExecutor } from "./sc.ts";
 import {
 	appendTodo,
 	blockTodo,
@@ -44,6 +53,11 @@ const RunStatusSchema = StringEnum([
 ] as const);
 const TodoStatusSchema = StringEnum(["open", "in_progress", "blocked", "done", "failed"] as const);
 const TodoPrioritySchema = StringEnum(["high", "medium", "low"] as const);
+const ScResultLimits = {
+	maxBytes: DEFAULT_MAX_BYTES,
+	maxLines: DEFAULT_MAX_LINES,
+	truncateHead,
+};
 
 function renderToolCall(name: string, detail: string, theme: any): Text {
 	return new Text(
@@ -73,6 +87,41 @@ function renderTodoResult(result: any, expanded: boolean, theme: any): Text {
 	return renderResultText(todoResultText(result, expanded), theme);
 }
 
+function renderAgentCall(
+	action: "launch" | "wait",
+	args: Record<string, unknown> | undefined,
+	theme: any,
+): Text {
+	const input = args ?? {};
+	const name = agentName(action === "launch" ? input.label : input.target);
+	let text =
+		theme.fg("toolTitle", theme.bold(name)) +
+		theme.fg("muted", action === "launch" ? " — launch" : " — wait");
+	if (action === "launch") {
+		const preview = taskPreview(input.prompt);
+		if (preview) {
+			text += `\n${theme.fg("toolOutput", preview)}`;
+			const lineCount = taskLineCount(input.prompt);
+			if (lineCount > 1) text += theme.fg("muted", ` (${lineCount} lines)`);
+		}
+	}
+	return new Text(text, 0, 0);
+}
+
+function renderAgentResult(
+	text: string,
+	isPartial: boolean,
+	isError: boolean,
+	theme: any,
+): Text {
+	const marker = isError
+		? theme.fg("error", "✗ ")
+		: isPartial
+			? theme.fg("warning", "… ")
+			: theme.fg("success", "✓ ");
+	return new Text(marker + theme.fg(isError ? "error" : "muted", text), 0, 0);
+}
+
 function summarizedTodos(todos: Awaited<ReturnType<typeof listTodos>>) {
 	return todos.map(({ body: _body, ...todo }) => ({
 		...todo,
@@ -82,10 +131,16 @@ function summarizedTodos(todos: Awaited<ReturnType<typeof listTodos>>) {
 
 export default function workbenchExtension(pi: ExtensionAPI): void {
 	let membership: RunMembership | undefined;
+	const scExec: ScExecutor = (command, args, options) => pi.exec(command, args, options);
 
-	function saveMembership(next: RunMembership | undefined): void {
+	function refreshMembershipStatus(ctx: any): void {
+		ctx.ui.setStatus("workbench", workbenchStatusText(membership));
+	}
+
+	function saveMembership(next: RunMembership | undefined, ctx: any): void {
 		membership = next;
 		pi.appendEntry("workbench-run", next ?? null);
+		refreshMembershipStatus(ctx);
 	}
 
 	async function restoreMembership(ctx: any): Promise<void> {
@@ -96,14 +151,15 @@ export default function workbenchExtension(pi: ExtensionAPI): void {
 		const stored = entry?.data as RunMembership | null | undefined;
 		if (!stored) {
 			membership = undefined;
-			return;
+		} else {
+			try {
+				const run = await getRun(stored.projectPath, stored.runId);
+				membership = { ...stored, projectPath: run.manifest.repository.root, root: run.root };
+			} catch {
+				membership = undefined;
+			}
 		}
-		try {
-			const run = await getRun(stored.projectPath, stored.runId);
-			membership = { ...stored, projectPath: run.manifest.repository.root, root: run.root };
-		} catch {
-			membership = undefined;
-		}
+		refreshMembershipStatus(ctx);
 	}
 
 	function requireMembership(): RunMembership {
@@ -134,7 +190,7 @@ export default function workbenchExtension(pi: ExtensionAPI): void {
 			model,
 			reasoning: ctx.thinkingLevel,
 		});
-		saveMembership(joined.membership);
+		saveMembership(joined.membership, ctx);
 		return joined.membership;
 	}
 
@@ -158,6 +214,78 @@ export default function workbenchExtension(pi: ExtensionAPI): void {
 		return {
 			systemPrompt: `${event.systemPrompt}\n\n## Active Workbench Run\nRun ID: ${membership.runId}\nRun root: ${membership.root}\nRole: ${membership.role}\nLabel: ${membership.label ?? "unlabeled"}\nTodo: ${membership.todoId ?? "none"}\n\nUse write_artifact/read_artifact for run documents and todo for durable task state. Keep all run working files beneath the run root. SC labels and coordination state are runtime controls; workbench files are the durable source of truth.`,
 		};
+	});
+
+	pi.registerTool({
+		name: "launch_agent",
+		label: "Launch Agent",
+		description:
+			"Launch one labeled Pi terminal in the current worktree through SC. Requires active Workbench membership and an explicit full prompt. Optional model and reasoning values must already be verified against SC capabilities. Model-facing output is limited to 50 KB or 2,000 lines; complete structured data remains in tool details.",
+		promptSnippet: "Launch one labeled Pi terminal for a coordinated Workbench task",
+		promptGuidelines: [
+			"Use launch_agent only after joining or creating the active Workbench run, with an explicit deterministic label and complete role prompt.",
+			"Use launch_agent model and reasoning only when those values have been verified against live SC capabilities.",
+			"Treat launch_agent success as dispatch only; verify the assigned Workbench todo and artifact separately after waiting.",
+		],
+		parameters: Type.Object({
+			label: Type.String({ description: "Explicit SC label for the launched agent" }),
+			prompt: Type.String({ description: "Complete prompt sent to the launched Pi terminal as one argv value" }),
+			model: Type.Optional(Type.String({ description: "Verified Pi model ID" })),
+			reasoning: Type.Optional(Type.String({ description: "Verified Pi reasoning level" })),
+		}),
+		async execute(_id, params, signal, _update, ctx) {
+			requireMembership();
+			const launched = await launchAgent(scExec, params, ctx.cwd, signal);
+			return launchAgentToolResult(launched, ScResultLimits);
+		},
+		renderCall(args, theme) {
+			return renderAgentCall("launch", args as Record<string, unknown>, theme);
+		},
+		renderResult(result, { expanded, isPartial, isError }, theme) {
+			return renderAgentResult(
+				launchAgentResultText(result, expanded, isError),
+				isPartial,
+				isError,
+				theme,
+			);
+		},
+	});
+
+	pi.registerTool({
+		name: "wait_for_agent",
+		label: "Wait for Agent",
+		description:
+			"Wait for one exact SC target to become idle, then read that same target. Requires active Workbench membership. Model-facing output is limited to 50 KB or 2,000 lines; retry with a smaller last value if truncated. Runtime completion does not replace durable Workbench todo and artifact checks.",
+		promptSnippet: "Wait for an exact SC agent target to become idle, then read its response",
+		promptGuidelines: [
+			"Call wait_for_agent with the exact label selector or stable target returned by launch_agent.",
+			"After wait_for_agent completes, inspect the assigned Workbench todo and result artifact before advancing the workflow.",
+		],
+		parameters: Type.Object({
+			target: Type.String({ description: "Exact SC target, such as label:worker or id:terminal:UUID" }),
+			timeoutMs: Type.Optional(Type.Integer({ minimum: 1, description: "SC idle-wait timeout in milliseconds" })),
+			last: Type.Optional(Type.Integer({ minimum: 1, description: "Number of transcript entries to read" })),
+		}),
+		async execute(_id, params, signal, onUpdate, ctx) {
+			requireMembership();
+			onUpdate?.({
+				content: [{ type: "text", text: `Waiting for ${params.target} to become idle` }],
+				details: { status: "waiting", target: params.target },
+			});
+			const result = await waitForAgent(scExec, params, ctx.cwd, signal);
+			return waitForAgentToolResult(params.target, result, ScResultLimits);
+		},
+		renderCall(args, theme) {
+			return renderAgentCall("wait", args as Record<string, unknown>, theme);
+		},
+		renderResult(result, { expanded, isPartial, isError }, theme) {
+			return renderAgentResult(
+				waitForAgentResultText(result, expanded, isError),
+				isPartial,
+				isError,
+				theme,
+			);
+		},
 	});
 
 	pi.registerTool({

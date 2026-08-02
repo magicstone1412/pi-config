@@ -12,11 +12,28 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { listArtifacts, readArtifact, resolveArtifactPath, writeArtifact } from "./artifacts.ts";
 import {
+	agentName,
+	launchAgentResultText,
+	launchAgentToolResult,
 	runWorkspaceResultText,
+	taskLineCount,
+	taskPreview,
 	todoResultText,
 	toolResultText,
+	waitForAgentResultText,
+	waitForAgentToolResult,
+	workbenchStatusText,
 } from "./rendering.ts";
 import { createRun, getRun, joinRun } from "./runs.ts";
+import {
+	buildLaunchAgentArgs,
+	buildReadAgentArgs,
+	buildWaitForAgentArgs,
+	executeScJson,
+	extractLaunchIdentifiers,
+	waitForAgent,
+	type ScExecutor,
+} from "./sc.ts";
 import { resolveRepository, withFileLock } from "./storage.ts";
 import {
 	claimTodo,
@@ -33,6 +50,27 @@ import type { RunMembership } from "./types.ts";
 
 const projectRoot = path.resolve(import.meta.dir, "../..");
 const temporaryRoots: string[] = [];
+const DEFAULT_MAX_BYTES = 50 * 1024;
+const DEFAULT_MAX_LINES = 2000;
+const ScResultLimits = {
+	maxBytes: DEFAULT_MAX_BYTES,
+	maxLines: DEFAULT_MAX_LINES,
+	truncateHead(content: string, options: { maxBytes: number; maxLines: number }) {
+		const lines = content.split("\n");
+		const output: string[] = [];
+		let outputBytes = 0;
+		for (const line of lines.slice(0, options.maxLines)) {
+			const lineBytes = new TextEncoder().encode(`${output.length ? "\n" : ""}${line}`).byteLength;
+			if (outputBytes + lineBytes > options.maxBytes) break;
+			output.push(line);
+			outputBytes += lineBytes;
+		}
+		return {
+			content: output.join("\n"),
+			truncated: output.length < lines.length,
+		};
+	},
+};
 
 async function temporaryHistoryRoot(): Promise<string> {
 	const root = await mkdtemp(path.join(tmpdir(), "pi-workbench-test-"));
@@ -254,6 +292,202 @@ describe("todos", () => {
 	});
 });
 
+describe("SC command adapter", () => {
+	test("builds a safe terminal launch argv with a multiline prompt", () => {
+		const prompt = "First line\nSecond line with 'quotes' and $variables";
+		const args = buildLaunchAgentArgs(
+			{
+				label: "run-worker-TODO-001",
+				prompt,
+				model: "openai-codex/gpt-5.6-sol",
+				reasoning: "high",
+			},
+			projectRoot,
+		);
+
+		expect(args).toEqual([
+			"layout",
+			"run",
+			"tabs",
+			"--provider",
+			"pi",
+			"--ui",
+			"terminal",
+			"--label",
+			"run-worker-TODO-001",
+			"--prompt",
+			prompt,
+			"--model",
+			"openai-codex/gpt-5.6-sol",
+			"--reasoning",
+			"high",
+			"--worktree",
+			projectRoot,
+			"--active",
+			"keep",
+			"--output",
+			"json",
+		]);
+		expect(args.filter((argument) => argument === prompt)).toHaveLength(1);
+	});
+
+	test("waits and reads sequentially against the same target with one abort signal", async () => {
+		const calls: Array<{ command: string; args: string[]; signal?: AbortSignal }> = [];
+		const controller = new AbortController();
+		const exec: ScExecutor = async (command, args, options) => {
+			calls.push({ command, args, signal: options?.signal });
+			return {
+				stdout: JSON.stringify({ kind: args[1], response: { ok: true } }),
+				stderr: "",
+				code: 0,
+				killed: false,
+			};
+		};
+		const input = { target: "id:terminal:abc", timeoutMs: 120_000, last: 20 };
+
+		const result = await waitForAgent(exec, input, projectRoot, controller.signal);
+
+		expect(result).toEqual({
+			wait: { kind: "wait", response: { ok: true } },
+			read: { kind: "read", response: { ok: true } },
+		});
+		expect(calls).toHaveLength(2);
+		expect(calls[0]).toEqual({
+			command: "sc",
+			args: buildWaitForAgentArgs(input, projectRoot),
+			signal: controller.signal,
+		});
+		expect(calls[1]).toEqual({
+			command: "sc",
+			args: buildReadAgentArgs(input, projectRoot),
+			signal: controller.signal,
+		});
+	});
+
+	test("does not read after a failed wait", async () => {
+		const calls: string[][] = [];
+		const exec: ScExecutor = async (_command, args) => {
+			calls.push(args);
+			return {
+				stdout: JSON.stringify({ response: { targets: [{ target_error: { message: "provider failed" } }] } }),
+				stderr: "",
+				code: 3,
+				killed: false,
+			};
+		};
+
+		await expect(
+			waitForAgent(exec, { target: "label:worker" }, projectRoot),
+		).rejects.toThrow("target error: provider failed");
+		expect(calls).toHaveLength(1);
+		expect(calls[0]?.slice(0, 2)).toEqual(["agent", "wait"]);
+	});
+
+	test("rejects malformed JSON, nonzero exits, termination, and nested target errors", async () => {
+		const result = (overrides: Partial<Awaited<ReturnType<ScExecutor>>>) => ({
+			stdout: "{}",
+			stderr: "",
+			code: 0,
+			killed: false,
+			...overrides,
+		});
+		await expect(
+			executeScJson(async () => result({ stdout: "not-json" }), ["agent", "read"]),
+		).rejects.toThrow("malformed JSON");
+		await expect(
+			executeScJson(
+				async () => result({ stdout: "", stderr: "timed out", code: 3 }),
+				["agent", "wait"],
+			),
+		).rejects.toThrow("failed (exit 3): timed out");
+		await expect(
+			executeScJson(async () => result({ killed: true }), ["layout", "run", "tabs"]),
+		).rejects.toThrow("was terminated");
+		await expect(
+			executeScJson(
+				async () => result({ stdout: JSON.stringify({ response: { target_error: "stalled" } }) }),
+				["agent", "read"],
+			),
+		).rejects.toThrow("target error: stalled");
+	});
+
+	test("extracts only identifiers present in the SC response", () => {
+		expect(
+			extractLaunchIdentifiers({
+				response: {
+					sessions: [{
+						label: "worker",
+						current_selector: "view:1/tab:2/pane:1",
+						stable_target_id: "terminal:abc",
+						session_id: "session-123",
+						conversation_id: "conversation-456",
+					}],
+				},
+			}),
+		).toEqual({
+			label: "worker",
+			selector: "view:1/tab:2/pane:1",
+			stableTargetId: "terminal:abc",
+			sessionId: "session-123",
+			conversationId: "conversation-456",
+		});
+		expect(extractLaunchIdentifiers({ response: { sessions: [{}] } })).toEqual({});
+	});
+});
+
+describe("SC model-facing results", () => {
+	test("bounds a byte-heavy launch response while preserving identifiers and raw details", () => {
+		const response = {
+			response: {
+				sessions: [{ stable_target_id: "terminal:abc" }],
+				payload: "界".repeat(DEFAULT_MAX_BYTES),
+			},
+		};
+		const launched = {
+			identifiers: {
+				label: "worker-TODO-003",
+				stableTargetId: "terminal:abc",
+			},
+			response,
+		};
+
+		const result = launchAgentToolResult(launched, ScResultLimits);
+		const text = result.content[0].text;
+
+		expect(new TextEncoder().encode(text).byteLength).toBeLessThanOrEqual(DEFAULT_MAX_BYTES);
+		expect(text.split("\n").length).toBeLessThanOrEqual(DEFAULT_MAX_LINES);
+		expect(text).toContain('"stableTargetId": "terminal:abc"');
+		expect(text).toContain("Output truncated");
+		expect(text).toContain("Full structured launch data remains in tool details.");
+		expect(result.details.response).toBe(response);
+		expect(result.details.response.response.payload).toHaveLength(DEFAULT_MAX_BYTES);
+	});
+
+	test("bounds a line-heavy wait/read response with retrieval guidance and raw details", () => {
+		const wait = { response: { idle: true } };
+		const read = {
+			response: {
+				entries: Array.from({ length: DEFAULT_MAX_LINES + 100 }, (_, index) => `entry-${index}`),
+			},
+		};
+
+		const result = waitForAgentToolResult(
+			"label:worker-TODO-003",
+			{ wait, read },
+			ScResultLimits,
+		);
+		const text = result.content[0].text;
+
+		expect(new TextEncoder().encode(text).byteLength).toBeLessThanOrEqual(DEFAULT_MAX_BYTES);
+		expect(text.split("\n").length).toBeLessThanOrEqual(DEFAULT_MAX_LINES);
+		expect(text).toContain("Output truncated");
+		expect(text).toContain("Call wait_for_agent again with a smaller last value");
+		expect(result.details.wait).toBe(wait);
+		expect(result.details.read).toBe(read);
+		expect(result.details.read.response.entries).toHaveLength(DEFAULT_MAX_LINES + 100);
+	});
+});
+
 describe("tool rendering", () => {
 	test("summarizes the current workspace when collapsed and shows its full result when expanded", () => {
 		const membership = { runId: "20260802-inspect-binary", role: "coordinator" };
@@ -299,6 +533,78 @@ describe("tool rendering", () => {
 
 		expect(toolResultText(result, false)).toBe("first line");
 		expect(toolResultText(result, true)).toBe("first line\nsecond line");
+	});
+
+	test("formats compact coordinator and worker Workbench status", () => {
+		const runId = "20260802-145955-native-sc-tools-for-workbench";
+		const coordinator: RunMembership = {
+			runId,
+			projectPath: projectRoot,
+			root: "/tmp/run",
+			role: "coordinator",
+			label: `${runId}-coordinator`,
+			joinedAt: "2026-08-02T15:00:00.000Z",
+		};
+		expect(workbenchStatusText(coordinator)).toBe(
+			"WB native-sc-tools-for-wor… · coordinator",
+		);
+		const worker = {
+			...coordinator,
+			role: "worker",
+			label: `${runId}-worker-TODO-002`,
+			todoId: "TODO-002",
+		};
+		expect(workbenchStatusText(worker)).toBe(
+			"WB native-sc-tools-for-wor… · worker · TODO-002",
+		);
+		expect(workbenchStatusText({ ...worker, label: `${worker.label}-docs` })).toBe(
+			"WB native-sc-tools-for-wor… · worker · TODO-002 · docs",
+		);
+	});
+
+	test("bounds status identity and preserves a nonredundant label suffix", () => {
+		const runId = `20260802-145955-${"x".repeat(40)}`;
+		const membership: RunMembership = {
+			runId,
+			projectPath: projectRoot,
+			root: "/tmp/run",
+			role: "scout",
+			label: `${runId}-scout-${"y".repeat(40)}`,
+			joinedAt: "2026-08-02T15:00:00.000Z",
+		};
+		expect(workbenchStatusText(membership)).toBe(
+			`WB ${"x".repeat(23)}… · scout · ${"y".repeat(23)}…`,
+		);
+		expect(workbenchStatusText()).toBeUndefined();
+	});
+
+	test("bounds task previews and handles partial agent values", () => {
+		const prompt = `\n${"x".repeat(120)}\nsecond task line`;
+		expect(taskPreview(prompt)).toBe(`${"x".repeat(100)}…`);
+		expect(taskLineCount(prompt)).toBe(3);
+		expect(taskPreview(undefined)).toBe("");
+		expect(taskLineCount(undefined)).toBe(0);
+		expect(agentName(undefined)).toBe("(unlabeled)");
+	});
+
+	test("summarizes launch, pending wait, completion, and errors", () => {
+		const launched = {
+			content: [{ type: "text", text: "full launch response" }],
+			details: { status: "launched", identifiers: { stableTargetId: "terminal:abc" } },
+		};
+		const waiting = {
+			content: [{ type: "text", text: "waiting" }],
+			details: { status: "waiting", target: "label:worker" },
+		};
+		const completed = {
+			content: [{ type: "text", text: "full wait/read response" }],
+			details: { status: "completed", target: "label:worker" },
+		};
+		expect(launchAgentResultText(launched, false)).toBe("terminal:abc — launched");
+		expect(launchAgentResultText(launched, true)).toBe("full launch response");
+		expect(waitForAgentResultText(waiting, false)).toBe("label:worker — waiting");
+		expect(waitForAgentResultText(completed, false)).toBe("label:worker — completed");
+		expect(waitForAgentResultText(completed, false, true)).toBe("full wait/read response");
 	});
 });
 
