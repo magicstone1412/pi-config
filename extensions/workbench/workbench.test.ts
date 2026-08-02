@@ -11,6 +11,11 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { listArtifacts, readArtifact, resolveArtifactPath, writeArtifact } from "./artifacts.ts";
+import {
+	runWorkspaceResultText,
+	todoResultText,
+	toolResultText,
+} from "./rendering.ts";
 import { createRun, getRun, joinRun } from "./runs.ts";
 import { resolveRepository, withFileLock } from "./storage.ts";
 import {
@@ -246,6 +251,54 @@ describe("todos", () => {
 		expect(released.claimRecoveries?.[0].reason).toBe("worker session disappeared");
 		await claimTodo(root, todo.id, { ...worker, label: "worker-b" }, "session-b");
 		expect((await getTodo(root, todo.id)).assignedTo?.sessionId).toBe("session-b");
+	});
+});
+
+describe("tool rendering", () => {
+	test("summarizes the current workspace when collapsed and shows its full result when expanded", () => {
+		const membership = { runId: "20260802-inspect-binary", role: "coordinator" };
+		const manifest = {
+			title: "Inspect binary file format",
+			status: "executing",
+			phase: "workers",
+		};
+		const result = {
+			content: [{ type: "text", text: JSON.stringify({ membership, manifest }, null, 2) }],
+			details: { action: "current", membership, manifest },
+		};
+
+		expect(runWorkspaceResultText(result, false)).toBe(
+			"20260802-inspect-binary: Inspect binary file format (executing/workers)",
+		);
+		expect(runWorkspaceResultText(result, true)).toContain('"role": "coordinator"');
+	});
+
+	test("summarizes todo records when collapsed and shows their full result when expanded", () => {
+		const todo = {
+			id: "TODO-001",
+			title: "Inspect binary file format",
+			status: "open",
+			body: "Check the parser.",
+		};
+		const result = {
+			content: [{ type: "text", text: JSON.stringify(todo, null, 2) }],
+			details: { action: "get", todo },
+		};
+
+		expect(todoResultText(result, false)).toBe(
+			"TODO-001: Inspect binary file format (open)",
+		);
+		expect(todoResultText(result, true)).toContain('"body": "Check the parser."');
+	});
+
+	test("shows complete multiline Workbench output when expanded", () => {
+		const result = {
+			content: [{ type: "text", text: "first line\nsecond line" }],
+			details: {},
+		};
+
+		expect(toolResultText(result, false)).toBe("first line");
+		expect(toolResultText(result, true)).toBe("first line\nsecond line");
 	});
 });
 

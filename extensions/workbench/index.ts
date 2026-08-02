@@ -10,6 +10,11 @@ import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import path from "node:path";
 import { listArtifacts, readArtifact, resolveArtifactPath, writeArtifact } from "./artifacts.ts";
+import {
+	runWorkspaceResultText,
+	todoResultText,
+	toolResultText,
+} from "./rendering.ts";
 import { createRun, getRun, joinRun, listRuns, updateRun } from "./runs.ts";
 import {
 	appendTodo,
@@ -48,10 +53,24 @@ function renderToolCall(name: string, detail: string, theme: any): Text {
 	);
 }
 
-function renderToolResult(result: any, theme: any): Text {
-	const first = result.content?.[0];
-	const text = first?.type === "text" ? first.text : "Done";
-	return new Text(theme.fg("success", "✓ ") + theme.fg("muted", text.split("\n")[0]), 0, 0);
+function renderResultText(text: string, theme: any): Text {
+	const themedText = text
+		.split("\n")
+		.map((line: string) => theme.fg("muted", line))
+		.join("\n");
+	return new Text(theme.fg("success", "✓ ") + themedText, 0, 0);
+}
+
+function renderToolResult(result: any, expanded: boolean, theme: any): Text {
+	return renderResultText(toolResultText(result, expanded), theme);
+}
+
+function renderRunWorkspaceResult(result: any, expanded: boolean, theme: any): Text {
+	return renderResultText(runWorkspaceResultText(result, expanded), theme);
+}
+
+function renderTodoResult(result: any, expanded: boolean, theme: any): Text {
+	return renderResultText(todoResultText(result, expanded), theme);
 }
 
 function summarizedTodos(todos: Awaited<ReturnType<typeof listTodos>>) {
@@ -239,8 +258,8 @@ export default function workbenchExtension(pi: ExtensionAPI): void {
 		renderCall(args, theme) {
 			return renderToolCall("run_workspace", args.action, theme);
 		},
-		renderResult(result, _options, theme) {
-			return renderToolResult(result, theme);
+		renderResult(result, { expanded }, theme) {
+			return renderRunWorkspaceResult(result, expanded, theme);
 		},
 	});
 
@@ -273,8 +292,8 @@ export default function workbenchExtension(pi: ExtensionAPI): void {
 		renderCall(args, theme) {
 			return renderToolCall("write_artifact", `${args.mode ?? "write"} ${args.path}`, theme);
 		},
-		renderResult(result, _options, theme) {
-			return renderToolResult(result, theme);
+		renderResult(result, { expanded }, theme) {
+			return renderToolResult(result, expanded, theme);
 		},
 	});
 
@@ -310,8 +329,8 @@ export default function workbenchExtension(pi: ExtensionAPI): void {
 		renderCall(args, theme) {
 			return renderToolCall("read_artifact", args.path, theme);
 		},
-		renderResult(result, _options, theme) {
-			return renderToolResult(result, theme);
+		renderResult(result, { expanded }, theme) {
+			return renderToolResult(result, expanded, theme);
 		},
 	});
 
@@ -332,8 +351,8 @@ export default function workbenchExtension(pi: ExtensionAPI): void {
 		renderCall(_args, theme) {
 			return renderToolCall("list_artifacts", "", theme);
 		},
-		renderResult(result, _options, theme) {
-			return renderToolResult(result, theme);
+		renderResult(result, { expanded }, theme) {
+			return renderToolResult(result, expanded, theme);
 		},
 	});
 
@@ -472,8 +491,8 @@ export default function workbenchExtension(pi: ExtensionAPI): void {
 		renderCall(args, theme) {
 			return renderToolCall("todo", `${args.action}${args.id ? ` ${args.id}` : ""}`, theme);
 		},
-		renderResult(result, _options, theme) {
-			return renderToolResult(result, theme);
+		renderResult(result, { expanded }, theme) {
+			return renderTodoResult(result, expanded, theme);
 		},
 	});
 
