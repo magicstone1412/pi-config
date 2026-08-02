@@ -40,7 +40,7 @@ Start with:
 sc instructions review
 sc worktree review-checklist --json
 sc worktree diff-summary --json
-sc worktree review-list --json
+sc worktree review-list --status open --json
 ```
 
 Read a specific thread:
@@ -58,14 +58,14 @@ sc worktree review-reply COMMENT_ID --provider PROVIDER --stdin --json
 sc worktree review-set-status COMMENT_ID STATUS --json
 ```
 
-Use `--anchor file` instead of line ranges for file-level comments. Use `--resolve` on a reply only when the requested outcome includes resolution.
+Use `--anchor file` instead of line ranges for file-level comments. Prefer an evidence reply followed by a separately verified status transition; resolve only when the requested outcome includes resolution.
 
-Treat review threads as super.engineering-managed state. Do not reconstruct or replace them with guessed state from source files, GitHub, or provider-specific APIs.
+Treat review threads as super.engineering-managed state. Do not reconstruct or replace them with guessed state from source files, GitHub, or provider-specific APIs. Open approval entries and unrelated historical comments may coexist with the current review, so inspect every returned open thread with `review-get` and classify it against the current diff before acting.
 
 ## Verification
 
 After any mutation:
 
-1. Re-run the corresponding status/list/get command.
-2. Confirm the exact worktree or review-thread state changed.
+1. Re-run `review-get` for the exact affected comment after a reply and again after a status transition.
+2. Re-run the corresponding checklist/list command and confirm the intended state changed.
 3. Report identifiers and resulting state without dumping unrelated JSON.

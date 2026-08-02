@@ -154,7 +154,7 @@ Avoid shotgun debugging ("let me try this... nope, what about this..."). If you'
 
 Generic requests for subagents, workers, reviewers, delegation, or parallel work use the current provider's native subagent capability. They do **not** authorize Superconductor commands, app-managed sessions, layouts, teams, worktrees, or review threads. If native subagents are unavailable, report that limitation rather than substituting SC.
 
-Use Superconductor only when the human explicitly asks for SC, Superconductor, super.engineering, orchestration, a named provider/model, or an app-managed UI outcome (such as visible sessions, tabs, panes, splits, side-by-side agents, worktrees, or review threads). Before mutating SC-managed state, run the applicable `sc instructions` guide:
+Use Superconductor only when the human explicitly asks for SC, Superconductor, super.engineering, orchestration, a named provider/model, or an app-managed UI outcome (such as visible sessions, tabs, panes, splits, side-by-side agents, worktrees, or review threads). Invoking the exact `/plan` command is a named, scoped authorization for SC orchestration and that run's built-in final-review lifecycle; it does not authorize unrelated review-thread changes. Before mutating SC-managed state, run the applicable `sc instructions` guide:
 
 - orchestration: `sc instructions orchestration`
 - layouts or sessions: `sc instructions layout`

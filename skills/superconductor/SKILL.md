@@ -10,7 +10,7 @@ Use `sc` as the control plane for explicitly requested super.engineering UI, ses
 
 ## Step 1: Preserve the authorization boundary
 
-- Use `sc` orchestration only for an explicit super.engineering trigger from the human user.
+- Use `sc` orchestration only for an explicit super.engineering trigger from the human user. A named prompt contract such as exact `/plan` may define a narrower explicit scope that includes its own SC lifecycle; follow that contract without broadening it to unrelated managed state.
 - Treat ordinary requests for a subagent, worker, reviewer, delegation, or parallel work as requests for the current provider's native subagent tools. Do not substitute `sc` unless the user asks for Superconductor, app-managed UI, another named provider/model, or orchestration.
 - Do not infer delegation from task size or possible speedups.
 - Mutate tabs, panes, views, chats, agents, worktrees, review threads, or shared state only when the requested outcome requires it.

@@ -17,23 +17,24 @@ run_workspace({ action: "join", runId: "<run-id>", role: "reviewer", label: "<la
 
 In an already joined Pi session, use the active run. Read `plan.md`, relevant todo records, worker result artifacts, and the changed code before assessing it.
 
-An in-app SC review thread is optional and only appropriate when the human explicitly requested that review outcome. Ordinary reviews remain artifact-only and must not read or mutate SC review threads. The durable review record remains the Workbench artifact; SC comments, target output, and idle state do not prove review completion.
+Use in-app SC review mode when the human directly authorized that outcome or when the launch contract says the reviewer belongs to an exact `/plan` run. Exact `/plan` always requires this mode for its run-scoped final review. Ordinary reviews remain artifact-only and must not read or mutate SC review threads. The durable review record remains the Workbench artifact; SC comments, target output, and idle state do not prove review completion.
 
 ## Process
 
 1. Inspect the requested diff and recent repository state.
-2. When the human explicitly authorized an in-app SC review:
+2. In SC-review mode:
    - Run `sc instructions review` before using the review commands.
-   - Inspect `sc worktree review-checklist --json`, `sc worktree diff-summary --json`, and `sc worktree review-list --json`.
-   - Use `sc worktree review-get COMMENT_ID --json` to read every existing open comment before deciding the verdict. Assess those comments against the current diff; do not assume they are addressed from status or summary output.
-3. Trace important changed logic and run targeted checks when useful.
+   - Inspect `sc worktree review-checklist --json`, `sc worktree diff-summary --json`, and `sc worktree review-list --status open --json`.
+   - Use `sc worktree review-get COMMENT_ID --json` for every returned open ID. Classify each as current actionable, addressed by the current diff, or unrelated/nonactionable history; do not infer this from checklist, list, or age.
+3. Read the supplied Workbench plan, todo, and worker artifacts; trace important changed logic and run targeted checks when useful.
 4. Flag only real, actionable, introduced issues.
-5. In explicitly authorized SC-review mode, reconcile the in-app review after assessing the code:
-   - Reply with verification evidence to each existing comment that is now addressed, then resolve only that comment. Do not resolve unrelated comments or comments whose requested change remains actionable.
-   - For a `NEEDS CHANGES` verdict, leave every unaddressed actionable comment open. Ensure each actionable finding is represented in SC: retain a matching existing comment or add one comment for each new finding, using the file and line anchor required by the live guide.
-   - For an `APPROVED` verdict, require no remaining actionable findings and publish one SC review entry whose summary starts with `[APPROVED]`.
-   - Re-run `review-list`, then `review-get` for every replied-to, resolved, or newly added comment. Confirm the exact IDs and resulting states; a successful mutation response alone is insufficient.
-6. Write `artifacts/<label>/review.md`, including the SC evidence below when applicable, then stop.
+5. In SC-review mode, reconcile only comments applicable to the current review:
+   - For an addressed existing finding, reply with verification evidence, verify the reply with `review-get`, set the comment to `resolved`, then verify the status with `review-get` again.
+   - Leave unrelated comments and every unaddressed actionable comment open.
+   - For `NEEDS CHANGES`, retain a matching existing comment or add one comment for each new actionable finding. Anchor it to the relevant file/line (or file), and include priority plus the Workbench run ID.
+   - For `APPROVED`, require no remaining actionable findings and add one file-anchored SC entry whose body starts with `[APPROVED]` and includes the Workbench run ID and concise verification. An approval entry may itself remain open and is not an actionable finding.
+   - Re-run `review-list`, then `review-get` for every replied-to, resolved, or newly added comment. Confirm exact IDs and resulting states; a successful mutation response alone is insufficient.
+6. After SC verification, write `artifacts/<label>/review.md`, including the evidence below when applicable, then stop.
 
 Useful commands:
 
@@ -82,10 +83,11 @@ write_artifact({ path: "artifacts/<label>/review.md", content: "..." })
 ## What's Good
 - [specific positive observations]
 
-## SC Review (explicitly authorized mode only)
-- Existing open comments inspected: [IDs and initial states]
-- Replies and resolutions: [IDs, evidence, and verified resulting states]
+## SC Review (SC-review mode only)
+- Existing open comments inspected and classified: [IDs, initial states, classifications]
+- Replies and resolutions: [IDs, evidence, and separately verified resulting states]
 - Published findings or approval: [new IDs and verified states]
+- Remaining open actionable comments: [IDs or none]
 ```
 
-If there are no findings, set the verdict to `APPROVED` and keep the report short. In authorized SC-review mode, the artifact must record all relevant SC comment IDs and the states verified with `review-list`/`review-get`. The Workbench artifact is required even when the SC lifecycle succeeds. In the final response, give the artifact path and verdict.
+If there are no findings, set the verdict to `APPROVED` and keep the report short. In SC-review mode, the artifact must record all relevant SC comment IDs, classifications, and states verified with `review-list`/`review-get`. The Workbench artifact is required even when the SC lifecycle succeeds; artifact-only review cannot complete an exact `/plan` run. In the final response, give the artifact path and verdict.

@@ -5,17 +5,21 @@ description: Interactive planning for requests to plan, brainstorm, design, crea
 
 # Plan
 
-Turn a request into a selected approach, a durable Workbench plan and todos, and—when explicitly authorized—an SC-coordinated implementation.
+Turn a request into a selected approach, a durable Workbench plan and todos, and—when explicitly authorized—an implementation coordinated through Superconductor's built-in orchestration and review surfaces.
 
 The current visible Pi chat is both planner and coordinator. Keep the planning conversation here through the final approach checkpoint; never launch a replacement planner or hand control back to another session. After the user selects an approach, this same chat creates the run and coordinates execution.
 
 ## Authorization Modes
 
-### `/plan` or another explicit SC trigger
+### Exact `/plan`
 
-The `/plan` prompt explicitly authorizes app-managed Superconductor orchestration for that planning run. A human request that independently satisfies the global SC policy—such as asking to orchestrate, naming another provider/model, or requesting visible tabs/panes—also authorizes only the requested SC outcome.
+The `/plan` prompt explicitly authorizes app-managed Superconductor orchestration and the built-in in-app SC final-review lifecycle for that Workbench run. Every `/plan` implementation role is launched and coordinated through SC, and artifact-only final review is not completion.
 
-The authorization does **not** implicitly authorize managed worktree creation/deletion, destructive cleanup, or in-app review-thread mutation. Those still require the human to request that outcome.
+This authorization does **not** authorize managed worktree creation/deletion, destructive cleanup, or review-thread mutations unrelated to the run.
+
+### Another explicit SC trigger
+
+A human request that independently satisfies the global SC policy—such as asking to orchestrate, naming another provider/model, or requesting visible tabs/panes—authorizes only the requested SC outcome. Its review remains artifact-only unless the human also requested an in-app SC review.
 
 ### Ordinary planning language
 
@@ -25,10 +29,10 @@ Requests such as “plan this,” “brainstorm,” “design,” or “let’s 
 
 For an authorized SC run, before the first SC mutation:
 
-1. Read `~/.pi/agent/skills/superconductor/SKILL.md` and its `references/orchestration.md` completely.
-2. Run `sc instructions orchestration` and `sc instructions layout`.
+1. Read `~/.pi/agent/skills/superconductor/SKILL.md` and its `references/orchestration.md` completely. For exact `/plan`, also read `references/worktrees-and-reviews.md` completely.
+2. Run `sc instructions orchestration` and `sc instructions layout`. For exact `/plan`, also run `sc instructions review`.
 3. Run `command -v sc`, `sc layout capabilities --output json`, `sc layout views --worktree "$PWD" --output json`, `sc agents list --worktree "$PWD" --output json`, and `sc chat providers --json`.
-4. Verify the requested launch shape, provider, model, UI mode, structured-read support, and reasoning level from live output.
+4. Verify the requested launch shape, provider, model, UI mode, structured-read support, and reasoning level from live output. For exact `/plan`, verify the review checklist, diff, list/get, add, reply, and status commands from current help.
 
 If SC or a requested capability is unavailable, state the exact limitation. Do not silently switch providers or orchestration mechanisms. Planning can continue in the current chat, but do not promise automatic SC execution that cannot run.
 
@@ -56,7 +60,7 @@ Ask the user to confirm or correct that intent.
 
 ### Phase 3: Clarify Requirements
 
-Ask only questions whose answers change the design: scope boundaries, observable behavior, edge cases, integration constraints, and any explicit UI, provider/model, review-thread, cleanup, or managed-worktree outcomes. Prefer concise multiple-choice questions. Resolve every authorization-sensitive ambiguity here, not after the final checkpoint.
+Ask only questions whose answers change the design: scope boundaries, observable behavior, edge cases, integration constraints, and any explicit UI, provider/model, cleanup, or managed-worktree outcomes. For non-`/plan` flows, also clarify any requested review-thread outcome; exact `/plan` already authorizes its run-scoped final review. Prefer concise multiple-choice questions. Resolve every authorization-sensitive ambiguity here, not after the final checkpoint.
 
 ### Phase 4: Effort and Ideal State Criteria
 
@@ -278,19 +282,35 @@ A successful launch/send, an idle target, or a confident chat response is never 
 
 ## Final Review
 
-After all implementation todos are durably done, launch one labeled terminal-mode Pi reviewer sequentially with `--provider pi --ui terminal`. Its prompt must supply the exact run ID, role `reviewer`, label, plan path, relevant todo IDs, and worker artifact paths, and require `~/.pi/agent/skills/review/SKILL.md` plus `artifacts/<reviewer-label>/review.md`.
+After all implementation todos are durably done, launch one labeled terminal-mode Pi reviewer sequentially with `--provider pi --ui terminal`. Its prompt must supply the exact run ID, role `reviewer`, label, plan path, relevant todo IDs, worker artifact paths, and `artifacts/<reviewer-label>/review.md`, and require `~/.pi/agent/skills/review/SKILL.md`. Do not launch the reviewer concurrently with work it must assess.
 
-The prompt must also state which review mode the human authorized:
+For every exact `/plan` run, state this launch contract explicitly:
 
-- **Artifact-only (default):** do not read or mutate SC review threads.
-- **In-app SC review (separately authorized):** require the reviewer to run `sc instructions review`; inspect the checklist, diff summary, review list, and every existing open comment; reply to and resolve only comments verified as addressed; leave still-actionable comments open; publish each new actionable finding or one `[APPROVED]` summary; verify all resulting IDs/states with `review-list` and `review-get`; and record that evidence in the Workbench review artifact.
+```text
+Review mode: Workbench + in-app SC review.
+The human invoked /plan; that command authorizes this run's built-in final review lifecycle.
+Read the supplied Workbench plan, todos, and worker artifacts; reconcile SC review state; write the required review artifact; do not fix code or launch agents.
+```
 
-Wait, read, check target errors, and read the durable review artifact. A review chat response, idle target, or SC comment without that artifact is incomplete. In authorized SC-review mode, independently run `review-list` and `review-get` for the IDs reported by the reviewer and require the Workbench and SC evidence to agree before accepting the verdict.
+Artifact-only final review is not valid for `/plan`. For another SC-triggered planning flow, use SC review only when the human authorized that outcome; otherwise retain artifact-only review.
 
-- `APPROVED`: continue only when the artifact exists and, in authorized SC-review mode, the verified SC state has no open actionable comments and includes the reviewer’s `[APPROVED]` entry.
-- `NEEDS CHANGES`: turn actionable P0/P1 findings into self-contained dependent Workbench todos, run workers sequentially, then send the existing reviewer a follow-up for re-review. The follow-up must repeat the authorized review mode: in SC-review mode it replies to and resolves comments only after verifying the fixes, leaves unresolved findings open, publishes the new verdict, and refreshes the SC IDs/states in the artifact. Repeat wait → read → artifact verification and, when applicable, `review-list`/`review-get` verification. Handle P2 only when required by ISC or clearly worth the scoped effort; do not expand scope for P3 polish.
+In SC-review mode, the reviewer must:
 
-Do not create, read, or mutate an in-app SC review thread unless the human explicitly requested that outcome. Before an authorized mutation, run `sc instructions review` and follow the live review guide.
+1. Run `sc instructions review` in its own session.
+2. Inspect `review-checklist`, `diff-summary`, and `review-list --status open`, then use `review-get` for every returned open ID. Classify each thread as current actionable, addressed by the current diff, or unrelated/nonactionable history before acting.
+3. Read the Workbench artifacts and code, trace changed logic, and run targeted checks.
+4. Reconcile only applicable threads:
+   - reply with verification evidence to an addressed finding, verify the reply with `review-get`, set it to `resolved`, then verify the status with `review-get`;
+   - leave still-actionable or unrelated comments open;
+   - add each new actionable finding with priority and Workbench run ID at the relevant file/line anchor;
+   - when no actionable finding remains, add one file-anchored entry whose body starts `[APPROVED]` and includes the run ID and concise verification.
+5. Re-run `review-list` and `review-get` for every replied-to, resolved, or newly added ID.
+6. Only after SC verification, write `artifacts/<reviewer-label>/review.md` with initial open IDs/classifications, replies, resolutions, published IDs, verified states, remaining actionable IDs, commands/results, and verdict.
+
+Wait, read, check target errors, and read the durable review artifact. A review response, idle target, or SC comment without that artifact is incomplete. In SC-review mode, independently repeat `review-list`/`review-get` verification and require Workbench and SC evidence to agree.
+
+- `APPROVED`: continue only when the artifact exists, no actionable comment remains open, and the current run has a verified `[APPROVED]` entry. An open approval entry or unrelated historical comment is not itself an actionable finding.
+- `NEEDS CHANGES`: turn actionable P0/P1 findings into self-contained dependent Workbench todos, run workers sequentially, then send the existing reviewer a follow-up for re-review. It must verify fixes, reply to and resolve only addressed applicable comments, leave unresolved findings open, publish the refreshed verdict, and rewrite the artifact with current IDs/states. Repeat wait → read → artifact and SC verification. Handle P2 only when required by ISC or clearly worth the scoped effort; do not expand scope for P3 polish.
 
 ## Steering, Cleanup, and Recovery
 
@@ -326,7 +346,7 @@ Before reporting completion:
 3. Read every expected scout, worker, and reviewer artifact.
 4. Confirm every SC launch/send was followed by wait and read, with no unresolved target/provider errors.
 5. Run the plan’s targeted tests/build/typecheck and inspect `git status --short` plus the relevant diff.
-6. Confirm the final Workbench review verdict. When in-app SC review was explicitly authorized, re-run `review-list` and `review-get` for every relevant ID, confirm the final states match the artifact, confirm no actionable comments remain open for an `APPROVED` verdict, and verify the `[APPROVED]` entry. SC state without the Workbench artifact is incomplete.
-7. Confirm that no unauthorized worktree, review-thread, cleanup, or commit operation occurred.
+6. Confirm the final Workbench review verdict. For exact `/plan` and any other authorized SC-review flow, re-run `review-list` and `review-get` for every relevant ID, confirm the final states match the artifact, confirm no actionable comments remain open for an `APPROVED` verdict, and verify the current run's `[APPROVED]` entry. SC state without the Workbench artifact is incomplete, and artifact-only review cannot complete `/plan`.
+7. Confirm that no unauthorized worktree, unrelated review-thread, cleanup, or commit operation occurred.
 
-Report the Workbench run ID, completed todo IDs, verification commands/results, final review verdict, relevant SC review IDs/states when authorized, remaining risks, and any UI sessions intentionally left open. Evidence—not dispatch—is the completion boundary.
+Report the Workbench run ID, completed todo IDs, verification commands/results, final review verdict, relevant SC review IDs/states, remaining risks, and any UI sessions intentionally left open. Evidence—not dispatch—is the completion boundary.
