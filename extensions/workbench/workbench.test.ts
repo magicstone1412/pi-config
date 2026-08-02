@@ -24,7 +24,7 @@ import {
 	waitForAgentToolResult,
 	workbenchStatusText,
 } from "./rendering.ts";
-import { createRun, getRun, joinRun } from "./runs.ts";
+import { createRun, ensureWorkspaceRun, getRun, joinRun } from "./runs.ts";
 import {
 	buildLaunchAgentArgs,
 	buildReadAgentArgs,
@@ -46,7 +46,8 @@ import {
 	releaseTodo,
 	updateTodo,
 } from "./todos.ts";
-import type { RunMembership } from "./types.ts";
+import type { RunMembership, WorkspaceScope } from "./types.ts";
+import { detectSuperconductorWorkspace, isCleanSession } from "./workspace.ts";
 
 const projectRoot = path.resolve(import.meta.dir, "../..");
 const temporaryRoots: string[] = [];
@@ -112,6 +113,75 @@ describe("repository and run storage", () => {
 		const loaded = await getRun(projectRoot, created.manifest.id, historyRoot);
 		expect(loaded.manifest.participants).toHaveLength(1);
 		expect(loaded.manifest.participants[0].label).toBe("migration-scout");
+	});
+});
+
+describe("automatic Superconductor workspace membership", () => {
+	test("detects managed workspace context and ignores ordinary Pi sessions", () => {
+		expect(detectSuperconductorWorkspace({})).toBeUndefined();
+		expect(detectSuperconductorWorkspace({ SUPERCONDUCTOR_MANAGED_AGENT: "1" })).toBeUndefined();
+		expect(detectSuperconductorWorkspace({
+			SUPERCONDUCTOR_MANAGED_AGENT: "1",
+			SUPERCONDUCTOR_WORKTREE_PATH: projectRoot,
+			SUPERCONDUCTOR_WORKSPACE_NAME: " main ",
+			SUPERCONDUCTOR_TERMINAL_ID: "terminal-123",
+		})).toEqual({
+			scope: {
+				type: "workspace",
+				provider: "superconductor",
+				name: "main",
+				path: projectRoot,
+			},
+			targetId: "terminal:terminal-123",
+		});
+		expect(detectSuperconductorWorkspace({
+			SUPERCONDUCTOR_MANAGED_AGENT: "1",
+			SUPERCONDUCTOR_WORKSPACE_PATH: projectRoot,
+		})?.scope.name).toBe(path.basename(projectRoot));
+	});
+
+	test("recognizes sessions without conversational history as clean", () => {
+		expect(isCleanSession([])).toBe(true);
+		expect(isCleanSession([{ type: "model_change" }, { type: "session_info" }])).toBe(true);
+		for (const type of ["message", "custom_message", "compaction", "branch_summary"]) {
+			expect(isCleanSession([{ type }])).toBe(false);
+		}
+	});
+
+	test("creates one deterministic workspace run and joins it with workspace identity", async () => {
+		const historyRoot = await temporaryHistoryRoot();
+		const scope: WorkspaceScope = {
+			type: "workspace",
+			provider: "superconductor",
+			name: "main",
+			path: projectRoot,
+		};
+		const first = await ensureWorkspaceRun(
+			scope,
+			historyRoot,
+			new Date("2026-08-02T18:00:00.000Z"),
+		);
+		const second = await ensureWorkspaceRun(
+			scope,
+			historyRoot,
+			new Date("2026-08-03T18:00:00.000Z"),
+		);
+
+		expect(second.root).toBe(first.root);
+		expect(second.manifest.createdAt).toBe("2026-08-02T18:00:00.000Z");
+		expect(first.manifest.id).toMatch(/^workspace-main-[a-f0-9]{12}$/);
+		expect(first.manifest.status).toBe("ready");
+		expect(first.manifest.phase).toBe("workspace");
+		expect(first.manifest.scope).toEqual(scope);
+
+		const joined = await joinRun(
+			projectRoot,
+			first.manifest.id,
+			{ sessionId: "session-workspace", role: "workspace", targetId: "terminal:abc" },
+			historyRoot,
+		);
+		expect(joined.membership.scope).toEqual(scope);
+		expect(joined.membership.targetId).toBe("terminal:abc");
 	});
 });
 
@@ -560,6 +630,23 @@ describe("tool rendering", () => {
 		expect(workbenchStatusText({ ...worker, label: `${worker.label}-docs` })).toBe(
 			"WB native-sc-tools-for-wor… · worker · TODO-002 · docs",
 		);
+	});
+
+	test("uses the Superconductor workspace name for automatic membership status", () => {
+		const membership: RunMembership = {
+			runId: "workspace-main-0123456789ab",
+			projectPath: projectRoot,
+			root: "/tmp/run",
+			role: "workspace",
+			joinedAt: "2026-08-02T18:00:00.000Z",
+			scope: {
+				type: "workspace",
+				provider: "superconductor",
+				name: "main",
+				path: projectRoot,
+			},
+		};
+		expect(workbenchStatusText(membership)).toBe("WB main · workspace");
 	});
 
 	test("bounds status identity and preserves a nonredundant label suffix", () => {

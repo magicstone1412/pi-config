@@ -22,17 +22,23 @@ Each Git repository gets one identity derived from its Git common directory, so 
 
 A non-Git directory uses its canonical path as the identity source.
 
+## Automatic workspace membership
+
+A clean Pi session started by Superconductor automatically joins a deterministic Workbench workspace run for its managed worktree. The extension detects Superconductor's managed-session environment, including its workspace/worktree path, name, and terminal identity, creates the workspace run once under the repository's shared history, and persists membership in the Pi session before the first prompt. The footer immediately shows `WB <workspace> · workspace`, and the first model turn receives the active Workbench context.
+
+The automatic workspace run is stable across clean sessions in the same managed worktree and starts in `ready/workspace` state. Ordinary Pi sessions outside Superconductor and resumed sessions with conversational history are not auto-joined. Existing persisted task-run membership always wins.
+
 ## Agent handshake
 
-The coordinating Pi session creates a run. When it is coordinating a repository other than its current directory, it passes that repository as `projectPath`. Every SC-launched Pi session receives the run ID, role, label, and optional todo ID in its launch prompt, then calls:
+The automatic workspace is the ambient orchestration context, not a replacement for a dedicated task run. A coordinating Pi session creates a task run when a workflow needs its own plan, todos, artifacts, and lifecycle. When it is coordinating a repository other than its current directory, it passes that repository as `projectPath`. Every SC-launched Pi role receives the task run ID, role, label, and optional todo ID in its launch prompt, then calls:
 
 ```text
 run_workspace({ action: "join", runId: "...", role: "scout", label: "run-scout-api" })
 ```
 
-Joining persists membership in the Pi session. Subsequent artifact and todo calls automatically use that run, including after session resume. The additive footer status uses a compact `WB` prefix, strips the run timestamp for display, bounds the run slug, and shows role/todo identity without repeating a redundant run-scoped SC label. A nonredundant label suffix remains visible. The status refreshes when membership or todo assignment changes and clears when no valid membership can be restored; persisted membership values are unchanged.
+Joining the dedicated task run replaces the ambient membership and persists it in the Pi session. Subsequent artifact and todo calls automatically use that run, including after session resume. The additive footer status uses a compact `WB` prefix, shows the workspace name for ambient membership, strips task-run timestamps for display, bounds the run slug, and shows role/todo identity without repeating a redundant run-scoped SC label. A nonredundant label suffix remains visible. The status refreshes when membership or todo assignment changes and clears when no valid membership can be restored; persisted membership values are unchanged.
 
-Do not infer run membership from the active SC view. SC labels and coordination-state are runtime controls; Workbench files are durable state.
+Only the clean-session bootstrap uses Superconductor's managed-session environment to establish ambient membership. Dedicated task-run membership is explicit and durable; it is never inferred from the active SC view, label, or coordination state. SC labels and coordination-state are runtime controls; Workbench files are durable state.
 
 ## Native SC execution tools
 

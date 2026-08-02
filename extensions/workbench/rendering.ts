@@ -124,7 +124,9 @@ function compactMembershipLabel(membership: RunMembership): string | undefined {
 
 export function workbenchStatusText(membership?: RunMembership): string | undefined {
 	if (!membership) return undefined;
-	const runSlug = membership.runId.replace(/^\d{8}-\d{6}-/, "");
+	const runSlug = membership.scope?.type === "workspace"
+		? membership.scope.name
+		: membership.runId.replace(/^\d{8}-\d{6}-/, "");
 	return [
 		`WB ${boundedStatusPart(runSlug)}`,
 		membership.role,

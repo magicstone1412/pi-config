@@ -23,7 +23,14 @@ import {
 	waitForAgentToolResult,
 	workbenchStatusText,
 } from "./rendering.ts";
-import { createRun, getRun, joinRun, listRuns, updateRun } from "./runs.ts";
+import {
+	createRun,
+	ensureWorkspaceRun,
+	getRun,
+	joinRun,
+	listRuns,
+	updateRun,
+} from "./runs.ts";
 import { launchAgent, waitForAgent, type ScExecutor } from "./sc.ts";
 import {
 	appendTodo,
@@ -41,6 +48,7 @@ import {
 	updateTodo,
 } from "./todos.ts";
 import type { RunMembership, RunStatus, TodoPriority, TodoStatus } from "./types.ts";
+import { detectSuperconductorWorkspace, isCleanSession } from "./workspace.ts";
 
 const RunStatusSchema = StringEnum([
 	"planning",
@@ -154,7 +162,12 @@ export default function workbenchExtension(pi: ExtensionAPI): void {
 		} else {
 			try {
 				const run = await getRun(stored.projectPath, stored.runId);
-				membership = { ...stored, projectPath: run.manifest.repository.root, root: run.root };
+				membership = {
+					...stored,
+					projectPath: run.manifest.repository.root,
+					root: run.root,
+					scope: run.manifest.scope,
+				};
 			} catch {
 				membership = undefined;
 			}
@@ -207,12 +220,36 @@ export default function workbenchExtension(pi: ExtensionAPI): void {
 		);
 	}
 
-	pi.on("session_start", async (_event, ctx) => restoreMembership(ctx));
+	pi.on("session_start", async (_event, ctx) => {
+		await restoreMembership(ctx);
+		if (membership || !isCleanSession(ctx.sessionManager.getEntries())) return;
+
+		const workspace = detectSuperconductorWorkspace();
+		if (!workspace) return;
+		try {
+			const run = await ensureWorkspaceRun(workspace.scope);
+			await join(
+				ctx,
+				run.manifest.id,
+				"workspace",
+				undefined,
+				workspace.targetId,
+				undefined,
+				workspace.scope.path,
+			);
+		} catch (error) {
+			const detail = error instanceof Error ? error.message : String(error);
+			ctx.ui.notify(`Workbench workspace initialization failed: ${detail}`, "error");
+		}
+	});
 
 	pi.on("before_agent_start", async (event) => {
 		if (!membership) return;
+		const workspaceContext = membership.scope?.type === "workspace"
+			? `\nWorkspace: ${membership.scope.name} (${membership.scope.provider})`
+			: "";
 		return {
-			systemPrompt: `${event.systemPrompt}\n\n## Active Workbench Run\nRun ID: ${membership.runId}\nRun root: ${membership.root}\nRole: ${membership.role}\nLabel: ${membership.label ?? "unlabeled"}\nTodo: ${membership.todoId ?? "none"}\n\nUse write_artifact/read_artifact for run documents and todo for durable task state. Keep all run working files beneath the run root. SC labels and coordination state are runtime controls; workbench files are the durable source of truth.`,
+			systemPrompt: `${event.systemPrompt}\n\n## Active Workbench Run\nRun ID: ${membership.runId}\nRun root: ${membership.root}\nRole: ${membership.role}${workspaceContext}\nLabel: ${membership.label ?? "unlabeled"}\nTodo: ${membership.todoId ?? "none"}\n\nThis session is already joined to Workbench; do not create or join a run merely to initialize it. Use write_artifact/read_artifact for run documents and todo for durable task state. Keep all run working files beneath the run root. SC labels and coordination state are runtime controls; workbench files are the durable source of truth.`,
 		};
 	});
 
@@ -292,10 +329,11 @@ export default function workbenchExtension(pi: ExtensionAPI): void {
 		name: "run_workspace",
 		label: "Run Workspace",
 		description:
-			"Create, join, inspect, list, or update the durable workspace for an SC orchestration run. Join once per Pi session before using artifact or todo tools.",
+			"Create, join, inspect, list, or update a durable Workbench run. Clean Superconductor-managed Pi sessions start in an automatic workspace run; explicit orchestration roles join their supplied task run.",
 		promptSnippet: "Create or join a durable SC run workspace for plans, todos, and agent artifacts",
 		promptGuidelines: [
-			"Use run_workspace to join the run ID supplied in an SC agent launch prompt before doing delegated work.",
+			"Use run_workspace current to inspect the automatic workspace membership when no task run was supplied.",
+			"Use run_workspace to join the task run ID supplied in an SC agent launch prompt before doing delegated work.",
 			"Use run_workspace create only in the coordinating Pi session, not in scouts, workers, or reviewers.",
 			"Pass run_workspace projectPath when the coordinated repository differs from the Pi session's current directory.",
 		],

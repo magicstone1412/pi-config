@@ -30,11 +30,11 @@ Add provider credentials to `~/.pi/agent/auth.json` and restart Pi. The optional
 
 ## Architecture
 
-- **Workbench** (`extensions/workbench/`) is the durable layer for plans, todos, and role artifacts. It identifies Git repositories by common directory, so managed worktrees share one run history. Its `launch_agent` and `wait_for_agent` tools expose the supported individual Pi terminal launch and wait/read path without taking ownership of orchestration policy.
+- **Workbench** (`extensions/workbench/`) is the durable layer for plans, todos, and role artifacts. A clean Superconductor-managed Pi session automatically joins a deterministic ambient workspace run for its worktree, so Workbench and orchestration tools are active from the first prompt. Dedicated workflows still create and join task-specific runs. Git repositories are identified by common directory, so managed worktrees share one run history. Its `launch_agent` and `wait_for_agent` tools expose the supported individual Pi terminal launch and wait/read path without taking ownership of orchestration policy.
 - **Superconductor** (`sc`) is the runtime control plane for delegated work, visible sessions, labels, layouts, teams, coordination state, managed worktrees, and in-app reviews. Raw SC remains the interface for capability preflight, follow-up controls, teams, unsupported launch topologies, and review operations.
 - **Skills and prompts** define the planner, coordinator, scout, worker, reviewer, and architecture-review contracts.
 
-A Workbench run contains `run.json`, `plan.md`, `todos/`, and `artifacts/`. SC labels and coordination-state are runtime addresses, never the durable source of task completion. See [`extensions/workbench/README.md`](extensions/workbench/README.md) for the storage and tool contract.
+A Workbench run contains `run.json`, `plan.md`, `todos/`, and `artifacts/`. The automatic ambient run is stable per managed worktree; a supplied task run always replaces it for that Pi session. SC labels and coordination-state are runtime addresses, never the durable source of task completion. See [`extensions/workbench/README.md`](extensions/workbench/README.md) for the storage and tool contract.
 
 ## Orchestration policy
 

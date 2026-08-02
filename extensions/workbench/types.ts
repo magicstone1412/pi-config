@@ -17,6 +17,13 @@ export interface RepositoryIdentity {
 	remote?: string;
 }
 
+export interface WorkspaceScope {
+	type: "workspace";
+	provider: "superconductor";
+	name: string;
+	path: string;
+}
+
 export interface RunParticipant {
 	sessionId: string;
 	role: string;
@@ -39,6 +46,7 @@ export interface RunManifest {
 	updatedAt: string;
 	repository: RepositoryIdentity;
 	participants: RunParticipant[];
+	scope?: WorkspaceScope;
 }
 
 export interface RunMembership {
@@ -50,6 +58,7 @@ export interface RunMembership {
 	targetId?: string;
 	todoId?: string;
 	joinedAt: string;
+	scope?: WorkspaceScope;
 }
 
 export interface TodoAssignment {

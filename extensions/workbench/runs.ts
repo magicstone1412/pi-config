@@ -1,4 +1,5 @@
-import { mkdir, readdir } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, readdir, realpath } from "node:fs/promises";
 import path from "node:path";
 import {
 	atomicWriteJson,
@@ -16,6 +17,7 @@ import type {
 	RunMembership,
 	RunParticipant,
 	RunStatus,
+	WorkspaceScope,
 } from "./types.ts";
 
 const RUN_ID_PATTERN = /^[a-z0-9][a-z0-9-]{2,95}$/;
@@ -92,6 +94,51 @@ export async function createRun(
 		await mkdir(path.join(root, "artifacts"), { recursive: true });
 		await mkdir(path.join(root, ".locks"), { recursive: true });
 		await atomicWriteJson(path.join(root, "run.json"), manifest);
+		return { manifest, root };
+	});
+}
+
+export async function ensureWorkspaceRun(
+	workspace: WorkspaceScope,
+	historyRoot = getHistoryRoot(),
+	now = new Date(),
+): Promise<{ manifest: RunManifest; root: string }> {
+	const canonicalPath = await realpath(workspace.path).catch(() => path.resolve(workspace.path));
+	const scope: WorkspaceScope = { ...workspace, path: canonicalPath };
+	const digest = createHash("sha256").update(canonicalPath).digest("hex").slice(0, 12);
+	const id = `workspace-${slugify(scope.name)}-${digest}`;
+	const { repository, repositoryDir, runsDir } = await repositoryPaths(canonicalPath, historyRoot);
+	await mkdir(runsDir, { recursive: true });
+	await writeRepositoryMetadata(repositoryDir, repository);
+
+	return withFileLock(path.join(repositoryDir, ".locks", "runs.lock"), async () => {
+		const root = path.join(runsDir, id);
+		const manifestPath = path.join(root, "run.json");
+		if (await pathExists(manifestPath)) {
+			const manifest = await readJson<RunManifest>(manifestPath);
+			if (manifest.scope?.type !== "workspace" || manifest.scope.path !== canonicalPath) {
+				throw new Error(`Run id collision for Superconductor workspace: ${id}`);
+			}
+			return { manifest, root };
+		}
+
+		const timestamp = now.toISOString();
+		const manifest: RunManifest = {
+			schema: 1,
+			id,
+			title: `Superconductor workspace: ${scope.name}`,
+			status: "ready",
+			phase: "workspace",
+			createdAt: timestamp,
+			updatedAt: timestamp,
+			repository,
+			participants: [],
+			scope,
+		};
+		await mkdir(path.join(root, "todos"), { recursive: true });
+		await mkdir(path.join(root, "artifacts"), { recursive: true });
+		await mkdir(path.join(root, ".locks"), { recursive: true });
+		await atomicWriteJson(manifestPath, manifest);
 		return { manifest, root };
 	});
 }
@@ -202,6 +249,7 @@ export async function joinRun(
 			targetId: joined.targetId,
 			todoId: joined.todoId,
 			joinedAt: joined.joinedAt,
+			scope: manifest.scope,
 		},
 	};
 }
