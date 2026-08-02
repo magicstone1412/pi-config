@@ -181,19 +181,26 @@ Use `--if-version` for competing writers. Never treat coordination-state, target
 
 Every launched Pi role prompt must contain the real task plus the exact Workbench run ID, role, SC label, and optional todo ID. It must tell the role to read its migrated skill, join that run first, write its exact durable artifact, and avoid launching additional agents. Include any commit constraint explicitly.
 
-Use long prompt files when needed and always remove them after the launch attempt. For delegated Pi workers, scouts, and reviewers, terminal mode is the operational default; use chat only when the human explicitly requests that app UI. For role-specific model/reasoning selection, choose only values verified by `sc chat providers --json`:
+Use long prompt files when needed and always remove them after the launch attempt. `sc layout run --from-file` consumes JSONL, not plaintext: every line must contain `label` and `initial_message` (plus optional `system_prompt`). Build it with `jq` so multiline prompts remain valid JSON. For delegated Pi workers, scouts, and reviewers, terminal mode is the operational default; use chat only when the human explicitly requests that app UI. For role-specific model/reasoning selection, choose only values verified by `sc chat providers --json`:
 
 ```bash
+set -e
+label="RUN_ID-worker-TODO-001"
+prompt_file="$(mktemp)"
+trap 'rm -f "$prompt_file"' EXIT
+jq -cn --arg label "$label" --arg message "$PROMPT_TEXT" \
+  '{label: $label, initial_message: $message}' >"$prompt_file"
 sc layout run tabs \
   --provider pi \
   --ui terminal \
   --model VERIFIED_MODEL_ID \
   --reasoning VERIFIED_LEVEL \
-  --label RUN_ID-worker-TODO-001 \
   --from-file "$prompt_file" \
   --worktree "$PWD" \
   --active keep \
   --output json
+rm -f "$prompt_file"
+trap - EXIT
 ```
 
 A provider being listed in layout capabilities does not prove its chat configuration or requested model is enabled. Verify both surfaces. One `sc layout run` invocation has one provider/model/reasoning selection; launch roles separately when they need different settings.
@@ -273,12 +280,17 @@ A successful launch/send, an idle target, or a confident chat response is never 
 
 After all implementation todos are durably done, launch one labeled terminal-mode Pi reviewer sequentially with `--provider pi --ui terminal`. Its prompt must supply the exact run ID, role `reviewer`, label, plan path, relevant todo IDs, and worker artifact paths, and require `~/.pi/agent/skills/review/SKILL.md` plus `artifacts/<reviewer-label>/review.md`.
 
-Wait, read, check target errors, and read the durable review artifact. A review chat response without that artifact is incomplete.
+The prompt must also state which review mode the human authorized:
 
-- `APPROVED`: continue to final verification.
-- `NEEDS CHANGES`: turn actionable P0/P1 findings into self-contained dependent Workbench todos, run workers sequentially, then send the existing reviewer a follow-up for re-review and repeat wait → read → artifact verification. Handle P2 only when required by ISC or clearly worth the scoped effort; do not expand scope for P3 polish.
+- **Artifact-only (default):** do not read or mutate SC review threads.
+- **In-app SC review (separately authorized):** require the reviewer to run `sc instructions review`; inspect the checklist, diff summary, review list, and every existing open comment; reply to and resolve only comments verified as addressed; leave still-actionable comments open; publish each new actionable finding or one `[APPROVED]` summary; verify all resulting IDs/states with `review-list` and `review-get`; and record that evidence in the Workbench review artifact.
 
-The reviewer normally uses a Workbench artifact only. Create or mutate an in-app SC review thread only when the human explicitly requested that review outcome; first run `sc instructions review` and follow the live review guide.
+Wait, read, check target errors, and read the durable review artifact. A review chat response, idle target, or SC comment without that artifact is incomplete. In authorized SC-review mode, independently run `review-list` and `review-get` for the IDs reported by the reviewer and require the Workbench and SC evidence to agree before accepting the verdict.
+
+- `APPROVED`: continue only when the artifact exists and, in authorized SC-review mode, the verified SC state has no open actionable comments and includes the reviewer’s `[APPROVED]` entry.
+- `NEEDS CHANGES`: turn actionable P0/P1 findings into self-contained dependent Workbench todos, run workers sequentially, then send the existing reviewer a follow-up for re-review. The follow-up must repeat the authorized review mode: in SC-review mode it replies to and resolves comments only after verifying the fixes, leaves unresolved findings open, publishes the new verdict, and refreshes the SC IDs/states in the artifact. Repeat wait → read → artifact verification and, when applicable, `review-list`/`review-get` verification. Handle P2 only when required by ISC or clearly worth the scoped effort; do not expand scope for P3 polish.
+
+Do not create, read, or mutate an in-app SC review thread unless the human explicitly requested that outcome. Before an authorized mutation, run `sc instructions review` and follow the live review guide.
 
 ## Steering, Cleanup, and Recovery
 
@@ -314,6 +326,7 @@ Before reporting completion:
 3. Read every expected scout, worker, and reviewer artifact.
 4. Confirm every SC launch/send was followed by wait and read, with no unresolved target/provider errors.
 5. Run the plan’s targeted tests/build/typecheck and inspect `git status --short` plus the relevant diff.
-6. Confirm the final review verdict and that no unauthorized worktree, review-thread, cleanup, or commit operation occurred.
+6. Confirm the final Workbench review verdict. When in-app SC review was explicitly authorized, re-run `review-list` and `review-get` for every relevant ID, confirm the final states match the artifact, confirm no actionable comments remain open for an `APPROVED` verdict, and verify the `[APPROVED]` entry. SC state without the Workbench artifact is incomplete.
+7. Confirm that no unauthorized worktree, review-thread, cleanup, or commit operation occurred.
 
-Report the Workbench run ID, completed todo IDs, verification commands/results, final review verdict, remaining risks, and any UI sessions intentionally left open. Evidence—not dispatch—is the completion boundary.
+Report the Workbench run ID, completed todo IDs, verification commands/results, final review verdict, relevant SC review IDs/states when authorized, remaining risks, and any UI sessions intentionally left open. Evidence—not dispatch—is the completion boundary.

@@ -18,10 +18,10 @@ Add provider credentials to `~/.pi/agent/auth.json` and restart Pi. The optional
 
 | Setting | Value |
 |---|---|
-| Default provider | `openrouter` |
-| Default model | `openai/gpt-5.6-sol` |
+| Default provider | `openai-codex` |
+| Default model | `gpt-5.6-sol` |
 | Thinking level | `high` |
-| Enabled models | `openrouter/openai/gpt-5.6-terra`, `openrouter/openai/gpt-5.6-sol` |
+| Enabled models | none |
 | Theme | `dark` |
 | Thinking block | shown |
 | Packages | `git:github.com/pasky/chrome-cdp-skill`, `git:github.com/HazAT/pi-parallel` |
@@ -57,7 +57,7 @@ Managed worktree creation/deletion, destructive cleanup, and in-app review-threa
 - **Ordinary planning language** stays in the current chat unless another explicit SC trigger is present.
 - **Scouts** are read-only and write `artifacts/<label>/report.md`.
 - **Workers** join the supplied run, claim exactly one todo, verify their implementation, write `artifacts/<label>/result.md`, then complete or block it. Source-writing workers are sequential in a shared worktree unless managed worktrees were explicitly requested.
-- **Reviewers** do not fix code; they write `artifacts/<label>/review.md`. An SC review thread is optional and separately authorized.
+- **Reviewers** do not fix code; they always write the durable `artifacts/<label>/review.md`. Ordinary reviews are artifact-only. When the human separately authorizes an in-app SC review, the reviewer first loads `sc instructions review`, reads the existing open comments, replies to and resolves only comments verified as addressed, leaves still-actionable comments open, and publishes each new finding or one `[APPROVED]` summary in the Review tool. The reviewer verifies the resulting comment IDs/states with review list/get commands and records them in the Workbench artifact; neither SC state nor an idle session replaces that durable completion record.
 - **Architecture review** records its durable findings at `artifacts/architecture/review.md`; interface alternatives use separate design artifacts.
 
 ## Skills and prompt templates

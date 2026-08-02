@@ -68,14 +68,19 @@ sc layout run tabs \
 
 Change `tabs` to `panes` or `views` only when the requested UI shape and capability output support it. Open a plain terminal with provider `terminal` and no prompt.
 
-For long or shell-sensitive prompts:
+For long or shell-sensitive prompts, write the JSONL records required by `--from-file`; a plaintext prompt file is invalid. Each line requires `label` and `initial_message` and may include `system_prompt`:
 
 ```bash
+set -e
+label="worker"
 prompt_file="$(mktemp)"
-printf '%s\n' "$PROMPT_TEXT" >"$prompt_file"
-sc layout run tabs --provider pi --ui terminal --label worker --from-file "$prompt_file" \
+trap 'rm -f "$prompt_file"' EXIT
+jq -cn --arg label "$label" --arg message "$PROMPT_TEXT" \
+  '{label: $label, initial_message: $message}' >"$prompt_file"
+sc layout run tabs --provider pi --ui terminal --from-file "$prompt_file" \
   --worktree "$PWD" --active keep --output json
 rm -f "$prompt_file"
+trap - EXIT
 ```
 
 Clean up the temporary file even if launch fails.

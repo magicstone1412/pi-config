@@ -89,7 +89,7 @@ Do not launch a replacement agent for a follow-up to an existing target.
 - Give every managed agent a short unique label when follow-ups are likely.
 - Use `--active keep` unless the user asks to focus the new session.
 - Use the current worktree explicitly when needed: `--worktree "$PWD"`.
-- Use `--from-file` for long or shell-sensitive prompts and remove temporary files afterward.
+- For long or shell-sensitive layout prompts, use `sc layout run --from-file` with JSONL—not plaintext. Each line requires `label` and `initial_message` and may include `system_prompt`; construct records with `jq -cn --arg ...` and remove the file afterward.
 - Pass the real task and relevant context, not a meta-prompt asking the new agent to rediscover the task.
 - Pi `set_tab_title` is not authoritative for SC-managed tabs: SC auto-titling can replace it. Use `sc tab title` only when the human explicitly requests that UI title mutation.
 - Use `--kill` only when the user requests force termination or normal cancellation fails.
