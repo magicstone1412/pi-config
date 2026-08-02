@@ -1,26 +1,45 @@
 ---
 name: write-todos
-description: Write clear Solo todos that workers can execute without losing architectural intent. Use when asked to "create todos", "write todos", "break into tasks", "plan todos", or create work items from a plan. Ensures each todo has outcomes, examples, constraints, and verification criteria.
+description: Write clear Workbench todos that workers can execute without losing architectural intent. Use when asked to "create todos", "write todos", "break into tasks", "plan todos", or create work items from a plan.
 ---
 
-# Write Solo Todos
+# Write Workbench Todos
 
-Write Solo todos that a worker can execute from the todo body, plan scratchpad, and referenced code. Every todo must preserve the architectural intent from the plan.
+Write durable Workbench todos that a worker can execute from the todo body, `plan.md`, referenced artifacts, and source files. Every todo must preserve the architectural intent from the plan.
+
+## Run Setup
+
+The coordinator creates or joins the Workbench run before creating todos. A directly launched coordinator session that is already joined uses its active run. Write the selected plan to `plan.md` before creating todos.
+
+Create each item with:
+
+```typescript
+todo({
+  action: "create",
+  title: "Short outcome",
+  body: "...",
+  priority: "high",
+  tags: ["plan-tag"],
+  dependsOn: ["TODO-001"]
+})
+```
+
+Use `dependsOn: []` when there are no dependencies. Todo IDs are assigned by Workbench; record them in dependent todo bodies after creation if helpful.
 
 ## Todo Body Template
 
 ```markdown
-**Plan scratchpad:** [name/id]
-**Scout scratchpad:** [name/id if relevant]
-**Depends on:** [todo ids or "none"]
+**Run plan:** `plan.md`
+**Relevant artifacts:** `artifacts/<label>/report.md` or "none"
+**Depends on:** TODO-001 or "none"
 
-## What
+## Outcome
 [One paragraph: what this todo produces and why]
 
 ## Constraints
 - [Architectural constraints]
 - [Libraries/patterns to use]
-- [Anti-patterns to avoid]
+- [Explicit anti-patterns to avoid]
 
 ## Files
 - `path/to/file` — [what changes]
@@ -30,68 +49,22 @@ Write Solo todos that a worker can execute from the todo body, plan scratchpad, 
 
 ## Expected Shape
 ```typescript
-// Short code sketch with imports and structure when no existing reference is enough
+// Short code sketch when no existing reference is sufficient
 ```
 
 ## Acceptance Criteria
 - [ ] [Specific, verifiable criterion]
-- [ ] [Command/test/check passes]
+- [ ] `<command>` passes
 ```
 
 ## Rules
 
-### Make Constraints Explicit
+- Repeat every relevant plan decision in the body; workers must not infer constraints.
+- Include an inline code sketch or a precise existing source reference.
+- Name plausible wrong approaches explicitly.
+- Keep one todo to one focused worker session. Source-writing todos are sequential in one shared worktree unless the human explicitly authorizes managed worktrees.
+- Use dependencies for ordering; workers cannot claim an item until its dependencies complete.
+- Make acceptance criteria objective, with commands, file checks, API results, or exact behavior.
+- Require every worker to join the run, claim exactly one todo, write `artifacts/<label>/result.md`, record verification, then complete or block it.
 
-Repeat every relevant plan decision in the todo body. Do not rely on the worker reading between the lines.
-
-| Weak | Strong |
-|---|---|
-| "Build the service" | "Build an Effect service using `Context.Tag` and `Layer`; do not use a plain class singleton." |
-| "Add WebSocket support" | "Use the `ws` package; do not introduce Socket.IO." |
-| "Create the component" | "Use React 19 and Tailwind v4 utilities; no CSS modules." |
-
-### Include a Code Example or Existing Reference
-
-Every todo needs one of:
-
-1. An inline code sketch showing imports, types, and structure.
-2. A precise existing file reference with line range and what to copy.
-
-### Name Anti-Patterns
-
-If a wrong approach looks plausible, name it:
-
-```markdown
-## Constraints
-- Use the existing repository abstraction in `src/db/repository.ts`.
-- Do not add direct SQL calls in route handlers.
-- Do not create a second cache layer.
-```
-
-### Keep Todos Focused
-
-One todo should fit one worker session and one commit. Split work when a todo touches unrelated behavior, has more than a few files, or needs separate verification.
-
-### Make Acceptance Criteria Verifiable
-
-Use commands, file checks, API responses, screenshots, or exact behavior.
-
-| Weak | Strong |
-|---|---|
-| "Code is clean" | "`npm run typecheck` passes" |
-| "Works correctly" | "Submitting the form shows the success toast and creates one network request" |
-| "Follows conventions" | "Imports come from `effect`; no `new Service()` appears" |
-
-## Creating Todos
-
-Use `todo_create`. Tag every todo with the plan tag.
-
-Before creating each todo, verify:
-
-- [ ] Plan scratchpad is referenced.
-- [ ] Todo is independently implementable.
-- [ ] Constraints and anti-patterns are explicit.
-- [ ] Code example or exact reference is present.
-- [ ] Dependencies are listed.
-- [ ] Acceptance criteria are objective.
-- [ ] The todo is small enough for one worker and one commit.
+Before creating each todo, verify it is independently implementable, references `plan.md`, states dependencies, includes constraints and a source reference or sketch, and has objective acceptance criteria.

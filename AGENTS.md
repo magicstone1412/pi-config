@@ -59,8 +59,6 @@ The best solutions feel almost obvious in hindsight — so logically simple and 
 - No defensive handling of deprecated or removed paths
 - If a path is wrong, delete it — don't preserve it behind a flag
 
-**If it doesn't feel clean and inevitable, the design isn't done yet.**
-
 ### Respect Project Convention Files
 
 Many projects contain agent instruction files from other tools. Be mindful of these when working in any project:
@@ -152,23 +150,22 @@ When something breaks, don't guess — investigate first.
 
 Avoid shotgun debugging ("let me try this... nope, what about this..."). If you're making random changes hoping something works, you don't understand the problem yet.
 
-### Delegate to Solo Subagents
+### Delegation and Superconductor Boundary
 
-Delegate substantial multi-step work to Solo subagents. A subagent is a plain fresh Pi session with your current model configuration — there are no agent definitions. Its role comes from the task text you give it.
+Generic requests for subagents, workers, reviewers, delegation, or parallel work use the current provider's native subagent capability. They do **not** authorize Superconductor commands, app-managed sessions, layouts, teams, worktrees, or review threads. If native subagents are unavailable, report that limitation rather than substituting SC.
 
-**When a skill fits the task, tell the subagent to read it first:**
+Use Superconductor only when the human explicitly asks for SC, Superconductor, super.engineering, orchestration, a named provider/model, or an app-managed UI outcome (such as visible sessions, tabs, panes, splits, side-by-side agents, worktrees, or review threads). Before mutating SC-managed state, run the applicable `sc instructions` guide:
 
-```typescript
-subagent({ name: "Scout: Auth", scratchpad: true, task: "Read ~/.pi/agent/skills/scout/SKILL.md and follow it.\n\nAnalyze the auth module..." })
-subagent({ name: "Worker: Todo 123", scratchpad: true, task: "Read ~/.pi/agent/skills/worker/SKILL.md and follow it.\n\nImplement Solo todo 123..." })
-subagent({ name: "Reviewer: Auth", scratchpad: true, task: "Read ~/.pi/agent/skills/review/SKILL.md and follow it.\n\nReview the auth changes..." })
-```
+- orchestration: `sc instructions orchestration`
+- layouts or sessions: `sc instructions layout`
+- worktrees or branches: `sc instructions worktree`
+- review threads: `sc instructions review`
 
-`subagent` is fire-and-forget: it returns after launching the child, and Solo wakes you with the process id and scratchpad id when the child goes idle. Read that scratchpad before deciding the next step. Do not poll or fabricate results.
+For an explicitly authorized SC workflow, the coordinator creates one Workbench run with `run_workspace`, writes `plan.md`, and creates durable todos. Every launched Pi role receives the run ID, role, label, and optional todo ID, and joins first with `run_workspace({ action: "join", ... })`. Use Workbench artifacts and todo state as the durable record; SC labels and coordination-state are runtime-only controls.
 
-Run workers sequentially in a shared git repo. Parallel read-only subagents (scouts, research) are fine.
+Read-only scouts may run concurrently. Source-writing workers run sequentially in a shared worktree unless the human explicitly authorizes managed worktrees. Dispatch is not completion: wait/read the launched session and verify its Workbench artifact and todo state before advancing.
 
-#### When NOT to Delegate
+#### When Not to Delegate
 
 - Quick fixes under two minutes.
 - Simple questions.

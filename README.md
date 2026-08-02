@@ -1,8 +1,6 @@
 # Pi Config
 
-Personal global [pi](https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent) configuration. Clone it to `~/.pi/agent/` to get the same agents, skills, prompt templates, local extensions, model defaults, and package configuration.
-
-This config is now **Solo-native** and intentionally small: orchestration goes through Solo subagents, Solo scratchpads, and Solo todos; only the local extensions that are still useful remain.
+Personal global [Pi](https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent) configuration. Clone it to `~/.pi/agent/` for shared settings, skills, prompt templates, extensions, and model configuration.
 
 ## Setup
 
@@ -12,86 +10,91 @@ git clone git@github.com:HazAT/pi-config ~/.pi/agent
 cd ~/.pi/agent && ./setup.sh
 ```
 
-Add credentials to `~/.pi/agent/auth.json` and restart pi. If you use the optional OpenRouter model in `models.json`, also provide `OPENROUTER_API_KEY` in your environment.
+Add provider credentials to `~/.pi/agent/auth.json` and restart Pi. The optional providers in `models.json` use `PERSONAL_OPENROUTER_API_KEY` and `OPENROUTER_API_KEY` where applicable.
 
-`setup.sh` expects this repo to live at `~/.pi/agent/` and installs the configured packages.
+`setup.sh` requires this repository at `~/.pi/agent/`. It creates `settings.json` only when absent, so it does not overwrite local selections, then installs the two packages declared in the generated defaults.
 
-## Defaults
+## Checked-in defaults
 
 | Setting | Value |
 |---|---|
-| Default provider | `openai-codex` |
-| Default model | `gpt-5.5` |
-| Default thinking level | `xhigh` |
-| Enabled models | `anthropic/claude-opus-4-7`, `openai-codex/gpt-5.5` |
-| Installed packages | `git:github.com/pasky/chrome-cdp-skill`, `git:github.com/HazAT/pi-parallel` |
+| Default provider | `openrouter` |
+| Default model | `openai/gpt-5.6-sol` |
+| Thinking level | `high` |
+| Enabled models | `openrouter/openai/gpt-5.6-terra`, `openrouter/openai/gpt-5.6-sol` |
+| Theme | `dark` |
+| Thinking block | shown |
+| Packages | `git:github.com/pasky/chrome-cdp-skill`, `git:github.com/HazAT/pi-parallel` |
 
-Custom provider definitions live in `models.json`:
-
-- `lmstudio` — local Gemma 4 26B A4B via LM Studio.
-- `openrouter` — Poolside Laguna M.1 free model via OpenRouter.
+`models.json` holds optional local and custom provider definitions. `models-store.json` is Pi runtime state and is intentionally ignored.
 
 ## Architecture
 
-- **Solo subagents** run focused roles and save artifacts to Solo scratchpads.
-- **Solo todos** hold executable work items for workers.
-- **Scratchpads** are the artifact channel for scout context, plans, worker results, reviews, and research.
-- **Prompt templates** provide slash-command workflows such as `/plan`.
-- **Local extensions** provide `/answer`, `/cost`, and the `execute_command` tool.
+- **Workbench** (`extensions/workbench/`) is the durable layer for plans, todos, and role artifacts. It identifies Git repositories by common directory, so managed worktrees share one run history.
+- **Superconductor** (`sc`) is the runtime control plane for explicitly requested visible sessions, labels, layouts, teams, coordination state, managed worktrees, and in-app reviews.
+- **Skills and prompts** define the planner, coordinator, scout, worker, reviewer, and architecture-review contracts.
 
-The old local `cmux` and file-based `todos` extensions are gone; orchestration now uses Solo directly.
+A Workbench run contains `run.json`, `plan.md`, `todos/`, and `artifacts/`. SC labels and coordination-state are runtime addresses, never the durable source of task completion. See [`extensions/workbench/README.md`](extensions/workbench/README.md) for the storage and tool contract.
 
-## Agents
+## Orchestration policy
 
-| Agent | Model | Purpose |
-|---|---|---|
-| `planner` | `anthropic/claude-opus-4-6` | Interactive Solo planning; clarifies intent, designs the approach, writes a plan scratchpad, and creates Solo todos |
-| `scout` | `anthropic/claude-haiku-4-5` | Fast read-only codebase reconnaissance |
-| `worker` | `anthropic/claude-sonnet-4-6` | Implements one Solo todo, verifies it, commits with the `commit` skill, saves a result scratchpad, and closes the todo |
-| `reviewer` | `openai-codex/gpt-5.5` | Reviews changes for quality, security, and correctness |
-| `researcher` | `anthropic/claude-sonnet-4-6` | Uses web tools and local code reading to produce sourced research |
-| `visual-tester` | `anthropic/claude-sonnet-4-6` | Uses Chrome CDP for visual QA and scratchpad reports |
-| `handoff` | Global default | Interactive fresh-session continuation agent launched by `/handoff` with a Solo scratchpad summary |
-| `autoresearch` | `anthropic/claude-opus-4-6` | Runs autonomous experiment batches |
+Superconductor is opt-in. Use it only when the human explicitly requests SC/Superconductor/super.engineering/orchestration, names another provider or model for delegated work, or requests app-managed UI such as tabs, panes, views, splits, or side-by-side agents. Generic requests for subagents, workers, reviewers, delegation, or parallel work use the current provider's native subagent capability; they do not authorize `sc` mutations.
 
-## Skills
+Before mutating SC-managed state, load the matching live guide:
 
-| Skill | When to Load |
+| Outcome | Required command |
 |---|---|
-| `plan` | Running the Solo-native planning workflow |
-| `handoff` | Starting a fresh Solo Pi session from a current-session handoff scratchpad |
-| `write-todos` | Writing worker-ready Solo todos from a plan |
-| `commit` | Making git commits; mandatory for every commit |
-| `code-simplifier` | Simplifying or cleaning up code |
-| `frontend-design` | Building web components, pages, or apps |
-| `github` | Working with GitHub via `gh` CLI |
-| `iterate-pr` | Iterating on a PR until CI passes |
-| `learn-codebase` | Onboarding to a project and checking conventions |
-| `session-reader` | Reading and analyzing pi session JSONL files |
-| `skill-creator` | Creating agent skills |
-| `add-mcp-server` | Adding MCP server configurations |
-| `chrome-cdp` | Inspecting local Chrome tabs when explicitly approved |
+| Agents, teams, or orchestration | `sc instructions orchestration` |
+| Tabs, panes, views, or layouts | `sc instructions layout` |
+| Managed worktrees or branches | `sc instructions worktree` |
+| In-app review threads | `sc instructions review` |
 
-Removed skills: `cmux`, `presentation-creator`, and `self-improve`.
+Managed worktree creation/deletion, destructive cleanup, and in-app review-thread changes always require their own explicit request. Operational recipes launch delegated Pi sessions with `--provider pi --ui terminal`; chat mode is an explicit app UI exception. Pi `set_tab_title` is not authoritative for SC-managed tabs because SC auto-titling can replace it, so use `sc tab title` only for a human-requested title mutation. Launch is only dispatch: coordinators wait, read the exact target, check errors, and verify the corresponding Workbench artifact and todo state before advancing.
 
-## Prompt Templates and Local Extensions
+## Workflows and roles
+
+- **`/plan <request>`** is an explicit, scoped SC trigger. Planning remains interactive in the current visible Pi chat through the final approach checkpoint. That chat then creates one Workbench run, writes `plan.md` and todos, and coordinates authorized execution.
+- **Ordinary planning language** stays in the current chat unless another explicit SC trigger is present.
+- **Scouts** are read-only and write `artifacts/<label>/report.md`.
+- **Workers** join the supplied run, claim exactly one todo, verify their implementation, write `artifacts/<label>/result.md`, then complete or block it. Source-writing workers are sequential in a shared worktree unless managed worktrees were explicitly requested.
+- **Reviewers** do not fix code; they write `artifacts/<label>/review.md`. An SC review thread is optional and separately authorized.
+- **Architecture review** records its durable findings at `artifacts/architecture/review.md`; interface alternatives use separate design artifacts.
+
+## Skills and prompt templates
+
+| Path | Purpose |
+|---|---|
+| `skills/plan/` | Interactive plan-to-coordinator workflow |
+| `skills/scout/`, `skills/worker/`, `skills/review/` | Workbench role contracts |
+| `skills/write-todos/` | Worker-ready durable todo guidance |
+| `skills/superconductor/` | Explicit SC control-plane procedures and recipes |
+| `skills/improve-codebase-architecture/` | Architecture deepening and interface-design workflow |
+| `skills/commit/` | Required procedure before every Git commit |
+| `skills/add-mcp-server/`, `skills/code-simplifier/`, `skills/frontend-design/`, `skills/github/`, `skills/iterate-pr/`, `skills/learn-codebase/`, `skills/session-reader/`, `skills/skill-creator/` | Specialized Pi workflows |
+| `prompts/plan.md` | `/plan <description>` |
+| `prompts/improve-codebase-architecture.md` | Architecture-review entry point |
+
+## Extensions
 
 | Path | Provides |
 |---|---|
-| `prompts/plan.md` | `/plan <description>` Solo planning workflow |
-| `prompts/handoff.md` | `/handoff <new prompt>` creates a handoff scratchpad and starts an interactive fresh Solo Pi session |
-| `extensions/answer/` | `/answer` and `ctrl+.` interactive Q&A extraction from the last assistant message |
-| `extensions/cost/` | `/cost [days]` API cost summary |
-| `extensions/execute-command/` | `execute_command` tool for triggering `/answer`, queuing slash commands, or sending a steer message |
+| `extensions/workbench/` | `run_workspace`, artifact, and todo tools plus `/runs` and `/todos` |
+| `extensions/execute-command/` | `execute_command` for self-invoked slash commands and steer messages |
 
-## Packages
+## Verification
 
-Packages are managed in `settings.json`.
+```bash
+jq empty settings.json models.json package.json
+npm run test:workbench
+git diff --check
+```
 
-| Package | Purpose |
-|---|---|
-| `git:github.com/pasky/chrome-cdp-skill` | Chrome DevTools Protocol CLI and skill for visual testing |
-| `git:github.com/HazAT/pi-parallel` | Web search, fetch, deep research, and batch enrichment tools |
+To verify that the Workbench extension loads without the rest of the global configuration:
+
+```bash
+pi --no-extensions --no-skills --no-prompt-templates --no-context-files \
+  -e ./extensions/workbench/index.ts --list-models gpt-5.6
+```
 
 ## Update
 

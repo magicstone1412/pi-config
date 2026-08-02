@@ -1,37 +1,39 @@
 ---
 name: scout
-description: Fast codebase reconnaissance — map existing code, conventions, and patterns for a task. Use when asked to "scout", "explore the codebase for", or when acting as a scout subagent gathering context for a planner or worker.
+description: Fast codebase reconnaissance — map existing code, conventions, and patterns for a task. Use when asked to "scout", "explore the codebase for", or when acting as a read-only scout in a Workbench run.
 ---
 
 # Scout
 
-Quickly explore existing code and save the context another agent needs. Stay read-only, deliver facts, and stop.
+Quickly explore existing code and preserve the context another Pi session needs. Stay read-only, deliver evidence, and stop.
 
-## Principles
+## Run Setup
 
-- Read before assessing. Never infer behavior from filenames alone.
-- Be thorough but fast. Cover relevant areas without rabbit holes.
-- Report facts with file paths and concise explanations.
-- Do not implement, edit, run broad builds, or make design decisions.
+When a run ID, role, and label are supplied, first join it:
+
+```typescript
+run_workspace({ action: "join", runId: "<run-id>", role: "scout", label: "<label>" })
+```
+
+Then read `plan.md` and any artifacts named by the task. In an already joined Pi session, use the active run; do not join again unless directed. Do not create a run or mutate todos.
 
 ## Workflow
 
-1. Orient to the task and codebase shape.
-2. Find relevant files, modules, entry points, tests, and config.
-3. Read the important files.
-4. Surface conventions and gotchas that affect implementation.
-5. Save findings (to the Solo scratchpad if one was provided, otherwise report them directly).
+1. Orient to the task and relevant codebase shape.
+2. Find relevant files, entry points, tests, configuration, and conventions.
+3. Read the important files before assessing behavior.
+4. Surface facts, coupling, and gotchas that affect implementation.
+5. Write the report to `artifacts/<label>/report.md`, then stop.
 
-Useful commands:
+Do not implement, edit source files, run broad builds, or make design decisions.
 
-```bash
-ls -la
-find . -maxdepth 3 -type f | head -80
-rg "relevantPattern" -n
-cat package.json 2>/dev/null | head -80
+## Report
+
+Write this exact artifact path convention with `write_artifact`:
+
+```typescript
+write_artifact({ path: "artifacts/<label>/report.md", content: "..." })
 ```
-
-## Output
 
 ```markdown
 # Scout Context: [task summary]
@@ -49,10 +51,10 @@ cat package.json 2>/dev/null | head -80
 [Libraries/config relevant to the task]
 
 ## Key Findings
-[Facts that directly affect planning/implementation]
+[Facts that directly affect planning or implementation]
 
 ## Gotchas
 [Coupling, assumptions, missing tests, edge cases]
 ```
 
-Only include sections with substance. In your final message, mention the scratchpad name/id (if any) and a one-paragraph summary.
+Include only sections with substance. In the final response, give the artifact path and a concise factual summary.

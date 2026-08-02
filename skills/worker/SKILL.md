@@ -1,82 +1,75 @@
 ---
 name: worker
-description: Implement one Solo todo — write code, verify it, commit with the commit skill, save a result note, and close the todo. Use when acting as a worker subagent executing a single well-scoped Solo todo.
+description: Implement one Workbench todo: join the run, claim, implement, verify, write a result artifact, and complete or block the todo.
 ---
 
 # Worker
 
-Execute exactly one well-scoped Solo todo: implement, verify, commit if code changed, save your result, mark the todo complete, and stop.
+Execute exactly one well-scoped Workbench todo. Do not redesign, re-plan, expand scope, or launch other agents.
 
-Do not redesign, re-plan, expand scope, or spawn subagents.
+## 1. Join and Claim
 
-## Workflow
-
-### 1. Read the Todo
-
-Your task references a Solo todo id. Read it through `solo_tool` because `todo_get` is gateway-only:
+When the task supplies a run ID, role, label, and todo ID, join before any other Workbench operation:
 
 ```typescript
-solo_tool({
-  action: "call",
-  name: "todo_get",
-  arguments: { todo_id: <id>, include_comments: true }
-})
+run_workspace({ action: "join", runId: "<run-id>", role: "worker", label: "<label>", todoId: "TODO-001" })
 ```
 
-If a plan scratchpad or scout scratchpad is referenced, read it with `scratchpad_read`.
+In a directly launched session that is already joined, inspect `run_workspace({ action: "current" })` and use that run. Read `plan.md`, the todo, and referenced artifacts. Claim exactly that one todo before implementation:
 
-### 2. Check Context Quality
+```typescript
+todo({ action: "claim", id: "TODO-001" })
+```
 
-Before editing, verify the todo includes:
+If required context, references, constraints, or acceptance criteria are missing, do not guess. Record an objective blocker with `todo({ action: "block", id, reason })`, write `artifacts/<label>/result.md`, and stop.
 
-- A code example or a concrete reference to existing code.
-- Explicit constraints and anti-patterns.
-- Acceptance criteria or verification commands.
+## 2. Implement
 
-If required context is missing, do not guess. Use `todo_update` to append a clear `## Worker Blocker` note to the todo body, save a short blocked note to your scratchpad, leave the todo incomplete, and stop.
+Read every target file before editing. Preserve unrelated user changes and keep the implementation focused on the claimed todo. Do not claim, release, force-release, or alter another todo. `force_release` is an explicit coordinator-only recovery action for claims left by disappeared workers; a worker must never use it to steal a claim.
 
-### 3. Implement
+## 3. Verify
 
-Workers are normally run sequentially by the parent, so do not use todo locks.
+Run the smallest meaningful verification: targeted tests, typecheck, build, or an appropriate smoke check. Capture the command and result. If verification cannot run or the acceptance criteria fail, block the todo with the concrete reason; do not complete it.
 
-Read files before editing. Keep changes minimal and focused. Follow existing project conventions.
+## 4. Record Result
 
-### 4. Verify
-
-Run the smallest meaningful verification: targeted tests, typecheck, build, smoke command, or endpoint/page check as appropriate. Capture command output for your result note.
-
-Never claim success without verification evidence. If verification cannot run, explain why.
-
-### 5. Commit Code Changes
-
-If code changed, read and follow `~/.pi/agent/skills/commit/SKILL.md` before committing. Make one polished commit for this todo unless the task explicitly says not to commit.
-
-### 6. Save Result
-
-Save this to the Solo scratchpad if one was provided, otherwise include it in your final message:
+Always write `artifacts/<label>/result.md` before the final todo transition:
 
 ```markdown
-# Worker Result: Todo <id>
+# Worker Result: TODO-001
 
 ## Summary
-[What changed]
+[What changed, or why work is blocked]
 
 ## Files Changed
 - `path` — [why]
 
 ## Verification
-```bash
-<command>
-```
-[relevant output]
+- `<command>` — [pass/fail output or reason it could not run]
 
-## Commit
-- `<sha>` — subject
-
-## Notes
-[Any follow-up or blocker]
+## Risks
+[Known follow-up, or "None"]
 ```
 
-### 7. Complete
+Use:
 
-If the todo is done, call `todo_complete({ todo_id: <id>, completed: true })`. Your final message should mention the todo id, scratchpad name/id, commit sha if any, and verification command.
+```typescript
+write_artifact({ path: "artifacts/<label>/result.md", content: "..." })
+```
+
+## 5. Complete or Block
+
+Only after the artifact is written and verification passes, complete the claimed todo with verification evidence:
+
+```typescript
+todo({
+  action: "complete",
+  id: "TODO-001",
+  verification: "<command> — passed",
+  artifactRefs: ["artifacts/<label>/result.md"]
+})
+```
+
+On a blocker or failed verification, use `todo({ action: "block", id, reason })` and leave it incomplete. Report the todo status, artifact path, and verification result.
+
+Do not commit unless the task explicitly requests a commit. If it does, read and follow `~/.pi/agent/skills/commit/SKILL.md` before committing.

@@ -20,16 +20,20 @@ if [ ! -f "$EXPECTED_DIR/settings.json" ]; then
   echo "Creating settings.json..."
   cat > "$EXPECTED_DIR/settings.json" << 'EOF'
 {
-  "lastChangelogVersion": "0.74.0",
-  "defaultProvider": "openai-codex",
-  "defaultModel": "gpt-5.5",
-  "defaultThinkingLevel": "xhigh",
+  "lastChangelogVersion": "0.83.0",
+  "defaultProvider": "openrouter",
+  "defaultModel": "openai/gpt-5.6-sol",
+  "defaultThinkingLevel": "high",
   "packages": [
     "git:github.com/pasky/chrome-cdp-skill",
     "git:github.com/HazAT/pi-parallel"
   ],
   "hideThinkingBlock": false,
-  "enabledModels": ["anthropic/claude-opus-4-7", "openai-codex/gpt-5.5"]
+  "enabledModels": [
+    "openrouter/openai/gpt-5.6-terra",
+    "openrouter/openai/gpt-5.6-sol"
+  ],
+  "theme": "dark"
 }
 EOF
 else

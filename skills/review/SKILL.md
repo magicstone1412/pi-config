@@ -1,49 +1,55 @@
 ---
 name: review
-description: Review code changes for quality, security, and correctness. Use when asked to "review", "code review", "check my changes", or when acting as a reviewer subagent. Produces a structured review with prioritized findings, saved to a Solo scratchpad when one is provided.
+description: Review code changes for quality, security, and correctness. Produces a durable Workbench review artifact and does not fix code.
 ---
 
 # Review
 
-Review the requested changes, report findings, and stop. Do not fix code yourself.
+Review the requested changes, report evidence-based findings, and stop. Do not modify implementation code or todos.
+
+## Run Setup
+
+When a run ID, role, and label are supplied, join first:
+
+```typescript
+run_workspace({ action: "join", runId: "<run-id>", role: "reviewer", label: "<label>" })
+```
+
+In an already joined Pi session, use the active run. Read `plan.md`, relevant todo records, worker result artifacts, and the changed code before assessing it.
+
+An in-app SC review thread is optional and only appropriate when the human explicitly requested that review outcome. Before creating or changing one, run `sc instructions review`. The durable review record remains the Workbench artifact.
 
 ## Process
 
-1. Read the task, plan scratchpad, and scout scratchpad if provided.
-2. Inspect recent commits and diffs.
-3. Read the changed code and trace important logic.
-4. Run targeted tests or checks when useful.
-5. Save a structured review (to the Solo scratchpad if one was provided, otherwise report it directly).
+1. Inspect the requested diff and recent repository state.
+2. Trace important changed logic and run targeted checks when useful.
+3. Flag only real, actionable, introduced issues.
+4. Write `artifacts/<label>/review.md`, then stop.
 
 Useful commands:
 
 ```bash
-git log --oneline -10
 git status --short
 git diff --stat
 git diff
 ```
 
-Adjust the diff range based on the task.
+## Priorities
 
-## Review Standards
+- **P0** — production breakage, data loss, or security hole.
+- **P1** — genuine foot gun likely to cause harm.
+- **P2** — concrete improvement; code works without it.
+- **P3** — minor polish.
 
-Flag issues that are real, actionable, introduced by the changes, and worth the author fixing.
+Always flag concrete security issues such as auth bypass, data exposure, unsanitized SQL, unsafe redirects, secret leakage, SSRF, or client-broadcast private state. Do not manufacture findings.
 
-Priorities:
+## Artifact
 
-- **P0** — Will break production, lose data, or create a security hole.
-- **P1** — Genuine foot gun someone will trip over.
-- **P2** — Real improvement, code works without it.
-- **P3** — Minor polish.
+Write this exact path convention:
 
-Always flag concrete security issues: auth bypass, data exposure, unsanitized SQL, unsafe redirects, secret leakage, SSRF, and client-broadcasted private state.
-
-Do not manufacture findings. If the code works and is readable, say so.
-
-## Review Output
-
-Use this structure:
+```typescript
+write_artifact({ path: "artifacts/<label>/review.md", content: "..." })
+```
 
 ```markdown
 # Code Review
@@ -68,4 +74,4 @@ Use this structure:
 - [specific positive observations]
 ```
 
-If there are no findings, set verdict to `APPROVED` and keep the report short.
+If there are no findings, set the verdict to `APPROVED` and keep the report short. In the final response, give the artifact path and verdict.

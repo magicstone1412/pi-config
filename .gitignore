@@ -13,6 +13,7 @@ trust.json
 
 # Pi runtime files (created when this repo is ~/.pi/agent/)
 git/
+models-store.json
 mcp-cache.json
 mcp-npx-cache.json
 run-history.jsonl

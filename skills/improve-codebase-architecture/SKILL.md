@@ -1,21 +1,21 @@
 ---
 name: improve-codebase-architecture
-description: Find deepening opportunities in a codebase, informed by CONTEXT.md and docs/adr/. Records findings in Solo scratchpads and can turn selected refactors into Solo todos. Use when improving architecture, finding refactoring opportunities, or making a codebase more testable and AI-navigable.
+description: Find deepening opportunities in a codebase, informed by CONTEXT.md and docs/adr/. Records findings in Workbench artifacts and can turn selected refactors into Workbench todos. Use when improving architecture, finding refactoring opportunities, or making a codebase more testable and AI-navigable.
 ---
 
 # Improve Codebase Architecture
 
 Surface architectural friction and propose **deepening opportunities** — refactors that turn shallow modules into deep ones. The aim is testability and AI-navigability.
 
-## Solo primitives
+## Durable review state
 
-Use Solo primitives as the durable workflow state. Do not hand-roll architecture reports or implementation task lists in chat when a scratchpad or todo fits.
+Use Workbench as the durable source of truth. Do not hand-roll architecture reports or implementation task lists in chat when an artifact or todo fits.
 
-### Review scratchpad
+At the start of a review, pick a short review tag such as `order-intake-architecture`. Use the active Workbench run when the session is already joined. Otherwise create one run with the current chat as coordinator and a title such as `Architecture Review: <tag>`; pass `projectPath` when the reviewed repository differs from the current directory. Do not create a second run for the same review.
 
-Pick a short review tag, such as `order-intake-architecture`. Create a Solo scratchpad named `Architecture Review: <tag>` early in the review, then update it at each meaningful transition: after exploration, after candidate selection, after grilling decisions, after interface-design comparisons, and when todos are created.
+Write the review to `artifacts/architecture/review.md` early, then replace it with the complete current record at each meaningful transition: after exploration, candidate selection, grilling decisions, interface-design comparisons, and todo creation. SC labels and coordination-state are runtime controls; this artifact is the durable review record.
 
-Use this scratchpad shape:
+Use this shape:
 
 ```markdown
 # Architecture Review: [focus]
@@ -32,8 +32,8 @@ Use this scratchpad shape:
 - ADRs read and decisions not to re-litigate
 
 ## Exploration Evidence
-- Scout scratchpad: [id/name]
-- `path/to/file` — friction observed
+- `artifacts/<scout-label>/report.md` — relevant evidence
+- `path/to/file` — friction observed directly
 
 ## Deepening Candidates
 1. [candidate summary, files, problem, solution, benefits]
@@ -47,31 +47,34 @@ Use this scratchpad shape:
   **Docs updated:** ...
 
 ## Interface Designs
-- Scratchpads: [id/name]
+- `artifacts/<designer-label>/design.md`
 - Recommendation: ...
 
-## Solo Todos
-- #[id] — [title]
+## Workbench Todos
+- TODO-NNN — [title]
 ```
 
-### Scouts and design subagents
+## Exploration and orchestration
 
-Use direct `read`, `bash`, and `rg` for quick facts. For multi-file reconnaissance, spawn a Solo subagent with `scratchpad: true` whose task tells it to read `~/.pi/agent/skills/scout/SKILL.md` first, stop, wait for the Solo wake-up, then read the scout scratchpad before presenting candidates.
+Use direct `read`, `bash`, and `rg` for quick facts. For multi-file reconnaissance, either explore in the current chat or, when the human has explicitly authorized Superconductor orchestration, launch a read-only terminal-mode Pi scout with `sc layout run ... --provider pi --ui terminal` and a deterministic run-scoped label. Ordinary requests for a scout, delegation, or parallel work do not authorize SC.
 
-For parallel interface exploration, use Solo subagents with scratchpads as described in [INTERFACE-DESIGN.md](INTERFACE-DESIGN.md). Read every design scratchpad before comparing designs.
+Before any authorized SC mutation, read `~/.pi/agent/skills/superconductor/SKILL.md` and its orchestration reference, run `sc instructions orchestration` and `sc instructions layout`, and verify current capabilities, providers, models, reasoning levels, targets, and the requested launch shape. Every launched scout receives the exact Workbench run ID, role `scout`, SC label, and task; it must join first, read `~/.pi/agent/skills/scout/SKILL.md`, remain read-only, and write `artifacts/<label>/report.md`. Wait for and read the same target, check target/provider errors, and read the report artifact before presenting candidates. Dispatch or idle state is not completion.
 
-### Todos
+For parallel interface exploration, follow [INTERFACE-DESIGN.md](INTERFACE-DESIGN.md). Every designer is read-only and writes a separate deterministic Workbench artifact. Fan-in must wait for and read every actual designer target and every expected design artifact before comparison.
 
-Only create implementation todos after the user chooses a candidate and confirms they want execution tasks. Before creating todos, read `~/.pi/agent/skills/write-todos/SKILL.md` and use `todo_create`.
+## Todos
+
+Only create implementation todos after the user chooses a candidate and explicitly confirms they want execution tasks. Before creating them, read `~/.pi/agent/skills/write-todos/SKILL.md` and use the Workbench `todo` tool.
 
 Every architecture todo must:
 
 - Be tagged with the review tag.
-- Reference the architecture review scratchpad plus relevant scout/interface scratchpads.
+- Reference `artifacts/architecture/review.md` plus relevant scout and interface-design artifacts in its body.
 - Preserve the selected candidate's constraints, anti-patterns, files, references, and verification criteria.
 - Fit one worker session and one commit.
+- State dependencies and objective acceptance criteria.
 
-If the candidate is still too broad or ambiguous for worker-ready todos, recommend `/plan` with the architecture review scratchpad instead of creating vague todos.
+If the candidate is still too broad or ambiguous for worker-ready todos, recommend `/plan` with the architecture review and supporting artifact paths instead of creating vague todos.
 
 ## Glossary
 
@@ -98,26 +101,9 @@ This skill is _informed_ by the project's domain model. The domain language give
 
 ### 1. Explore
 
-Read the project's domain glossary and any ADRs in the area you're touching first.
+Read the project's domain glossary and any ADRs in the area you're touching first. Read [LANGUAGE.md](LANGUAGE.md), [DEEPENING.md](DEEPENING.md), and [INTERFACE-DESIGN.md](INTERFACE-DESIGN.md) before applying their guidance.
 
-Then create or update the architecture review scratchpad. For anything beyond a quick local read, spawn a Solo subagent to walk the codebase and save evidence to its scratchpad:
-
-```typescript
-subagent({
-  name: "Scout: <review tag>",
-  scratchpad: true,
-  task: `Read ~/.pi/agent/skills/scout/SKILL.md and follow it.
-
-Explore architecture friction for: <focus>
-
-Review tag: <review tag>
-Read CONTEXT.md / CONTEXT-MAP.md and relevant ADRs first.
-Look for shallow modules, weak seams, coupling, testability gaps, and codebase navigation friction.
-Save findings with file paths and evidence to your Solo scratchpad.`
-})
-```
-
-After spawning the scout, stop and wait for Solo to wake you. Read the scout scratchpad before presenting candidates. Don't follow rigid heuristics — explore organically and note where you experience friction:
+Create or update `artifacts/architecture/review.md`. For anything beyond a quick local read, gather evidence across the codebase in the current chat or use an authorized SC-launched scout as described above. Don't follow rigid heuristics — explore organically and note where you experience friction:
 
 - Where does understanding one concept require bouncing between many small modules?
 - Where are modules **shallow** — interface nearly as complex as the implementation?
@@ -138,34 +124,32 @@ Present a numbered list of deepening opportunities. For each candidate:
 
 **Use CONTEXT.md vocabulary for the domain, and [LANGUAGE.md](LANGUAGE.md) vocabulary for the architecture.** If `CONTEXT.md` defines "Order," talk about "the Order intake module" — not "the FooBarHandler," and not "the Order service."
 
-**ADR conflicts**: if a candidate contradicts an existing ADR, only surface it when the friction is real enough to warrant revisiting the ADR. Mark it clearly (e.g. _"contradicts ADR-0007 — but worth reopening because…"_). Don't list every theoretical refactor an ADR forbids.
+**ADR conflicts**: if a candidate contradicts an existing ADR, only surface it when the friction is real enough to warrant revisiting the ADR. Mark it clearly (for example, _"contradicts ADR-0007 — but worth reopening because…"_). Don't list every theoretical refactor an ADR forbids.
 
-Write the candidate list to the architecture review scratchpad. Do NOT propose interfaces yet. Ask the user: "Which of these would you like to explore?"
+Write the candidate list to `artifacts/architecture/review.md`. Do not propose interfaces yet. Ask the user: "Which of these would you like to explore?"
 
 ### 3. Grilling loop
 
-Once the user picks a candidate, drop into a grilling conversation. Walk the design tree with them — constraints, dependencies, the shape of the deepened module, what sits behind the seam, what tests survive.
+Once the user picks a candidate, drop into a grilling conversation. Walk the design tree with them — constraints, dependencies, the shape of the deepened module, what sits behind the seam, and what tests survive.
 
 Side effects happen inline as decisions crystallize:
 
 - **Naming a deepened module after a concept not in `CONTEXT.md`?** Add the term to `CONTEXT.md` with a one-line definition so the domain language stays authoritative. Create the file lazily if it doesn't exist.
 - **Sharpening a fuzzy term during the conversation?** Update `CONTEXT.md` right there.
-- **User rejects the candidate with a load-bearing reason?** Offer an ADR, framed as: _"Want me to record this as an ADR so future architecture reviews don't re-suggest it?"_ Only offer when the reason would actually be needed by a future explorer to avoid re-suggesting the same thing — skip ephemeral reasons ("not worth it right now") and self-evident ones. Write it to `docs/adr/NNNN-<slug>.md` with context, decision, and consequences.
-- **Want to explore alternative interfaces for the deepened module?** See [INTERFACE-DESIGN.md](INTERFACE-DESIGN.md). Use Solo subagents with scratchpads, then record the comparison and recommendation in the architecture review scratchpad.
+- **User rejects the candidate with a load-bearing reason?** Offer an ADR, framed as: _"Want me to record this as an ADR so future architecture reviews don't re-suggest it?"_ Only offer when the reason would actually be needed by a future explorer to avoid re-suggesting the same thing — skip ephemeral reasons ("not worth it right now") and self-evident ones. Write an accepted ADR to `docs/adr/NNNN-<slug>.md` with context, decision, and consequences.
+- **Want to explore alternative interfaces for the deepened module?** Use Design It Twice through [INTERFACE-DESIGN.md](INTERFACE-DESIGN.md), then record the comparison and recommendation in the architecture review artifact.
 
-Update the architecture review scratchpad after each crystallised decision. It is the source of truth for future planners, workers, and reviewers.
+Update `artifacts/architecture/review.md` after each crystallised decision. It is the source of truth for future planners, workers, and reviewers.
 
-### 4. Convert selected work to Solo todos
+### 4. Convert selected work to Workbench todos
 
-When the selected architecture change is ready to execute and the user confirms they want task creation, create Solo todos rather than a bespoke checklist.
+When the selected architecture change is ready to execute and the user confirms they want task creation, read `~/.pi/agent/skills/write-todos/SKILL.md` and create focused Workbench todos with the `todo` tool, all tagged with the review tag. Each todo body must include:
 
-Before creating todos, read `~/.pi/agent/skills/write-todos/SKILL.md`. Create focused todos with `todo_create`, all tagged with the review tag. Each todo body should include:
-
-- Architecture review scratchpad name/id.
-- Scout scratchpad and interface-design scratchpads, if relevant.
+- `artifacts/architecture/review.md`.
+- Scout and interface-design artifact paths, if relevant.
 - The selected candidate and the exact deepening decision it implements.
 - Files to read/change and references to existing patterns.
 - Explicit constraints and anti-patterns, especially seam/interface decisions.
-- Acceptance criteria and verification commands.
+- Dependencies, acceptance criteria, and verification commands.
 
-If further design work is needed before worker-ready todos can be written, run `/plan` with the architecture review scratchpad and scout scratchpads instead of creating low-quality todos.
+If further design work is needed before worker-ready todos can be written, run `/plan` with the architecture review and supporting artifact paths instead of creating low-quality todos.
