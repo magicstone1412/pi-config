@@ -56,9 +56,9 @@ Use this shape:
 
 ## Exploration and orchestration
 
-Use direct `read`, `bash`, and `rg` for quick facts. For multi-file reconnaissance, either explore in the current chat or, when the human has explicitly authorized Superconductor orchestration, launch a read-only terminal-mode Pi scout with `sc layout run ... --provider pi --ui terminal` and a deterministic run-scoped label. Ordinary requests for a scout, delegation, or parallel work do not authorize SC.
+Use direct `read`, `bash`, and `rg` for quick facts. For multi-file reconnaissance, either explore in the current chat or launch a read-only terminal-mode Pi scout with `sc layout run ... --provider pi --ui terminal` and a deterministic run-scoped label when delegation materially helps. SC is available without a special trigger or additional permission check.
 
-Before any authorized SC mutation, read `~/.pi/agent/skills/superconductor/SKILL.md` and its orchestration reference, run `sc instructions orchestration` and `sc instructions layout`, and verify current capabilities, providers, models, reasoning levels, targets, and the requested launch shape. Every launched scout receives the exact Workbench run ID, role `scout`, SC label, and task; it must join first, read `~/.pi/agent/skills/scout/SKILL.md`, remain read-only, and write `artifacts/<label>/report.md`. Wait for and read the same target, check target/provider errors, and read the report artifact before presenting candidates. Dispatch or idle state is not completion.
+Before any SC mutation, read `~/.pi/agent/skills/superconductor/SKILL.md` and its orchestration reference, run `sc instructions orchestration` and `sc instructions layout`, and verify current capabilities, providers, models, reasoning levels, targets, and the requested launch shape. Every launched scout receives the exact Workbench run ID, role `scout`, SC label, and task; it must join first, read `~/.pi/agent/skills/scout/SKILL.md`, remain read-only, and write `artifacts/<label>/report.md`. Wait for and read the same target, check target/provider errors, and read the report artifact before presenting candidates. Dispatch or idle state is not completion.
 
 For parallel interface exploration, follow [INTERFACE-DESIGN.md](INTERFACE-DESIGN.md). Every designer is read-only and writes a separate deterministic Workbench artifact. Fan-in must wait for and read every actual designer target and every expected design artifact before comparison.
 
@@ -103,7 +103,7 @@ This skill is _informed_ by the project's domain model. The domain language give
 
 Read the project's domain glossary and any ADRs in the area you're touching first. Read [LANGUAGE.md](LANGUAGE.md), [DEEPENING.md](DEEPENING.md), and [INTERFACE-DESIGN.md](INTERFACE-DESIGN.md) before applying their guidance.
 
-Create or update `artifacts/architecture/review.md`. For anything beyond a quick local read, gather evidence across the codebase in the current chat or use an authorized SC-launched scout as described above. Don't follow rigid heuristics — explore organically and note where you experience friction:
+Create or update `artifacts/architecture/review.md`. For anything beyond a quick local read, gather evidence across the codebase in the current chat or use an SC-launched scout as described above. Don't follow rigid heuristics — explore organically and note where you experience friction:
 
 - Where does understanding one concept require bouncing between many small modules?
 - Where are modules **shallow** — interface nearly as complex as the implementation?

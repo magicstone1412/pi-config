@@ -150,22 +150,24 @@ When something breaks, don't guess — investigate first.
 
 Avoid shotgun debugging ("let me try this... nope, what about this..."). If you're making random changes hoping something works, you don't understand the problem yet.
 
-### Delegation and Superconductor Boundary
+### Superconductor Control Plane
 
-Generic requests for subagents, workers, reviewers, delegation, or parallel work use the current provider's native subagent capability. They do **not** authorize Superconductor commands, app-managed sessions, layouts, teams, worktrees, or review threads. If native subagents are unavailable, report that limitation rather than substituting SC.
+Inside super.engineering, Superconductor is Pi's default control plane for delegated work and managed sessions. Pi may use `sc` for agents, workers, reviewers, delegation, parallel work, teams, and session coordination whenever it materially helps the task. Generic agent or delegation requests may be fulfilled through SC without a special keyword or an additional permission check. Use provider-native subagents when the human explicitly requests native provider behavior or when SC lacks the required capability.
 
-Use Superconductor only when the human explicitly asks for SC, Superconductor, super.engineering, orchestration, a named provider/model, or an app-managed UI outcome (such as visible sessions, tabs, panes, splits, side-by-side agents, worktrees, or review threads). Invoking the exact `/plan` command is a named, scoped authorization for SC orchestration and that run's built-in final-review lifecycle; it does not authorize unrelated review-thread changes. Before mutating SC-managed state, run the applicable `sc instructions` guide:
+Before the first mutation in an SC-managed area, run the applicable `sc instructions` guide:
 
 - orchestration: `sc instructions orchestration`
 - layouts or sessions: `sc instructions layout`
 - worktrees or branches: `sc instructions worktree`
 - review threads: `sc instructions review`
 
-For an explicitly authorized SC workflow, the coordinator creates one Workbench run with `run_workspace`, writes `plan.md`, and creates durable todos. Every launched Pi role receives the run ID, role, label, and optional todo ID, and joins first with `run_workspace({ action: "join", ... })`. Use Workbench artifacts and todo state as the durable record; SC labels and coordination-state are runtime-only controls.
+Keep managed-state changes scoped to the requested work. Non-destructive launches and coordination are allowed by default. Explicit human intent is still required for managed worktree creation or deletion, target-branch changes, force termination, destructive cleanup, closing or rearranging existing user sessions, and review-thread mutations unrelated to the requested workflow.
 
 In a Superconductor-managed Pi terminal, update the app tab title with `sc tab title "$TITLE" --to "id:terminal:$SUPERCONDUCTOR_TERMINAL_ID" --json`. Verify that `response.new_title` matches the requested title. Do not omit the stable target: untargeted title updates may resolve the calling session without changing the app tab.
 
-Read-only scouts may run concurrently. Source-writing workers run sequentially in a shared worktree unless the human explicitly authorizes managed worktrees. Dispatch is not completion: wait/read the launched session and verify its Workbench artifact and todo state before advancing.
+For a coordinated SC workflow, the coordinator creates one Workbench run with `run_workspace`, writes `plan.md`, and creates durable todos. Every launched Pi role receives the run ID, role, label, and optional todo ID, and joins first with `run_workspace({ action: "join", ... })`. Use Workbench artifacts and todo state as the durable record; SC labels and coordination-state are runtime-only controls.
+
+Read-only scouts may run concurrently. Source-writing workers run sequentially in a shared worktree unless the human explicitly requests managed worktrees. Dispatch is not completion: wait/read the launched session and verify its Workbench artifact and todo state before advancing.
 
 #### When Not to Delegate
 
