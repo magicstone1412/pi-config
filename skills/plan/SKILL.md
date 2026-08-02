@@ -1,33 +1,29 @@
 ---
 name: plan
-description: Interactive planning for requests to plan, brainstorm, design, create a plan, or build something. Invoking `/plan` explicitly authorizes the Superconductor workflow; ordinary planning language stays in the current session unless the human gives another explicit SC trigger.
+description: Interactive planning for requests to plan, brainstorm, design, create a plan, or build something. Uses Superconductor for research, coordination, and execution when it materially helps; exact `/plan` guarantees the complete SC execution and review workflow.
 ---
 
 # Plan
 
-Turn a request into a selected approach, a durable Workbench plan and todos, and—when explicitly authorized—an implementation coordinated through Superconductor's built-in orchestration and review surfaces.
+Turn a request into a selected approach, a durable Workbench plan and todos, and, when implementation is requested, coordinate it through Superconductor's built-in orchestration and review surfaces.
 
 The current visible Pi chat is both planner and coordinator. Keep the planning conversation here through the final approach checkpoint; never launch a replacement planner or hand control back to another session. After the user selects an approach, this same chat creates the run and coordinates execution.
 
-## Authorization Modes
+## Orchestration Modes
 
 ### Exact `/plan`
 
-The `/plan` prompt explicitly authorizes app-managed Superconductor orchestration and the built-in in-app SC final-review lifecycle for that Workbench run. Every `/plan` implementation role is launched and coordinated through SC, and artifact-only final review is not completion.
+The `/plan` workflow includes app-managed Superconductor orchestration and the built-in in-app SC final-review lifecycle for its Workbench run. Every `/plan` implementation role is launched and coordinated through SC, and artifact-only final review is not completion.
 
-This authorization does **not** authorize managed worktree creation/deletion, destructive cleanup, or review-thread mutations unrelated to the run.
-
-### Another explicit SC trigger
-
-A human request that independently satisfies the global SC policy—such as asking to orchestrate, naming another provider/model, or requesting visible tabs/panes—authorizes only the requested SC outcome. Its review remains artifact-only unless the human also requested an in-app SC review.
+This workflow does **not** include managed worktree creation/deletion, destructive cleanup, or review-thread mutations unrelated to the run.
 
 ### Ordinary planning language
 
-Requests such as “plan this,” “brainstorm,” “design,” or “let’s build” are not SC triggers by themselves. Perform the interactive phases in the current chat, but do not run `sc agent`, `sc team`, `sc layout`, or other SC mutations unless the human separately provides an explicit trigger. Do not substitute SC for requested native subagents. If no SC trigger exists, finish the selected plan in the current session and follow the normal non-SC execution policy.
+Requests such as “plan this,” “brainstorm,” or “design” do not by themselves request implementation. Keep the interactive planning conversation in the current chat, and use SC for requested research, design exploration, delegation, or implementation whenever it materially helps. After the final checkpoint, execute implementation only when the user's request includes it; SC itself requires no separate trigger or permission check.
 
 ## SC Preflight
 
-For an authorized SC run, before the first SC mutation:
+Before the first SC mutation:
 
 1. Read `~/.pi/agent/skills/superconductor/SKILL.md` and its `references/orchestration.md` completely. For exact `/plan`, also read `references/worktrees-and-reviews.md` completely.
 2. Run `sc instructions orchestration` and `sc instructions layout`. For exact `/plan`, also run `sc instructions review`.
@@ -60,7 +56,7 @@ Ask the user to confirm or correct that intent.
 
 ### Phase 3: Clarify Requirements
 
-Ask only questions whose answers change the design: scope boundaries, observable behavior, edge cases, integration constraints, and any explicit UI, provider/model, cleanup, or managed-worktree outcomes. For non-`/plan` flows, also clarify any requested review-thread outcome; exact `/plan` already authorizes its run-scoped final review. Prefer concise multiple-choice questions. Resolve every authorization-sensitive ambiguity here, not after the final checkpoint.
+Ask only questions whose answers change the design: scope boundaries, observable behavior, edge cases, integration constraints, and any explicit UI, provider/model, cleanup, or managed-worktree outcomes. For non-`/plan` flows, also clarify any requested review-thread outcome; exact `/plan` already includes its run-scoped final review. Prefer concise multiple-choice questions. Resolve every destructive-state or scope ambiguity here, not after the final checkpoint.
 
 ### Phase 4: Effort and Ideal State Criteria
 
@@ -89,9 +85,9 @@ Ask what is missing or should be out of scope.
 
 Present 2–3 materially different approaches with tradeoffs, risks, effort, and a recommendation tied directly to the ISC. Ask the user to confirm the recommendation or select another approach. Explicitly say:
 
-> This is the final approach checkpoint. After your answer, I’ll finish the plan and todos autonomously; for an authorized `/plan` run, I’ll then coordinate execution without asking for another confirmation.
+> This is the final approach checkpoint. After your answer, I’ll finish the plan and todos autonomously; for an exact `/plan` run, I’ll then coordinate execution without asking for another confirmation.
 
-After the user answers, do not ask more planning questions. Resolve routine details yourself from evidence and the selected approach. Stop only for a genuine safety blocker or an authorization-sensitive ambiguity that should not be guessed.
+After the user answers, do not ask more planning questions. Resolve routine details yourself from evidence and the selected approach. Stop only for a genuine safety blocker or a destructive-state or scope ambiguity that should not be guessed.
 
 ## Post-Checkpoint: Become the Coordinator
 
@@ -144,9 +140,9 @@ Source-writing todos are sequential in a shared worktree. Parallel source writer
 
 ### 5. Start execution
 
-For an authorized `/plan` run, summarize the run ID, selected approach, and todo sequence briefly, then start execution without asking for another confirmation. The current chat remains coordinator throughout fan-out, workers, review, and final verification.
+For an exact `/plan` run, summarize the run ID, selected approach, and todo sequence briefly, then start execution without asking for another confirmation. The current chat remains coordinator throughout fan-out, workers, review, and final verification.
 
-For an ordinary planning request without an SC trigger, do not execute the SC sections below. Present the completed plan and proceed only through mechanisms authorized by the user and global policy.
+For an ordinary planning request, execute only work included in the user's requested outcome. SC may be used for any requested research, design, delegation, or implementation without a separate trigger, but planning language alone does not request implementation.
 
 ## Run-Scoped Identity and Live State
 
@@ -288,11 +284,11 @@ For every exact `/plan` run, state this launch contract explicitly:
 
 ```text
 Review mode: Workbench + in-app SC review.
-The human invoked /plan; that command authorizes this run's built-in final review lifecycle.
+The human invoked /plan; this workflow includes the run's built-in final review lifecycle.
 Read the supplied Workbench plan, todos, and worker artifacts; reconcile SC review state; write the required review artifact; do not fix code or launch agents.
 ```
 
-Artifact-only final review is not valid for `/plan`. For another SC-triggered planning flow, use SC review only when the human authorized that outcome; otherwise retain artifact-only review.
+Artifact-only final review is not valid for `/plan`. For another planning flow, use SC review when the requested outcome includes in-app review; otherwise retain artifact-only review.
 
 In SC-review mode, the reviewer must:
 
@@ -346,7 +342,7 @@ Before reporting completion:
 3. Read every expected scout, worker, and reviewer artifact.
 4. Confirm every SC launch/send was followed by wait and read, with no unresolved target/provider errors.
 5. Run the plan’s targeted tests/build/typecheck and inspect `git status --short` plus the relevant diff.
-6. Confirm the final Workbench review verdict. For exact `/plan` and any other authorized SC-review flow, re-run `review-list` and `review-get` for every relevant ID, confirm the final states match the artifact, confirm no actionable comments remain open for an `APPROVED` verdict, and verify the current run's `[APPROVED]` entry. SC state without the Workbench artifact is incomplete, and artifact-only review cannot complete `/plan`.
-7. Confirm that no unauthorized worktree, unrelated review-thread, cleanup, or commit operation occurred.
+6. Confirm the final Workbench review verdict. For exact `/plan` and any other SC-review flow, re-run `review-list` and `review-get` for every relevant ID, confirm the final states match the artifact, confirm no actionable comments remain open for an `APPROVED` verdict, and verify the current run's `[APPROVED]` entry. SC state without the Workbench artifact is incomplete, and artifact-only review cannot complete `/plan`.
+7. Confirm that no unrequested worktree, unrelated review-thread, cleanup, or commit operation occurred.
 
 Report the Workbench run ID, completed todo IDs, verification commands/results, final review verdict, relevant SC review IDs/states, remaining risks, and any UI sessions intentionally left open. Evidence—not dispatch—is the completion boundary.

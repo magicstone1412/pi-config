@@ -1,21 +1,22 @@
 ---
 name: superconductor
-description: Operates the super.engineering/Superconductor `sc` CLI for app-managed chats, tabs, panes, views, agents, teams, worktrees, and review threads. Use when the user explicitly mentions "sc", "Superconductor", "super.engineering", "orchestrate", or "orchestration"; names another provider or model for delegated work; or requests visible/app-managed chats, tabs, panes, views, splits, side-by-side agents, teams, worktrees, or reviews.
+description: Operates the super.engineering/Superconductor `sc` CLI for app-managed chats, tabs, panes, views, agents, teams, worktrees, and review threads. Use for agents, subagents, workers, delegation, parallel work, teams, provider/model-specific work, or app-managed UI, session, worktree, and review operations.
 compatibility: Requires the super.engineering/Superconductor app and the `sc` CLI. Some operations require Experimental Agent orchestration.
 ---
 
 # Superconductor CLI
 
-Use `sc` as the control plane for explicitly requested super.engineering UI, sessions, orchestration, worktrees, and reviews. Treat live CLI instructions and capability output as authoritative.
+Use `sc` as the default control plane for super.engineering sessions, orchestration, worktrees, and reviews. Treat live CLI instructions and capability output as authoritative.
 
-## Step 1: Preserve the authorization boundary
+## Step 1: Use SC by default and preserve destructive boundaries
 
-- Use `sc` orchestration only for an explicit super.engineering trigger from the human user. A named prompt contract such as exact `/plan` may define a narrower explicit scope that includes its own SC lifecycle; follow that contract without broadening it to unrelated managed state.
-- Treat ordinary requests for a subagent, worker, reviewer, delegation, or parallel work as requests for the current provider's native subagent tools. Do not substitute `sc` unless the user asks for Superconductor, app-managed UI, another named provider/model, or orchestration.
-- Do not infer delegation from task size or possible speedups.
-- Mutate tabs, panes, views, chats, agents, worktrees, review threads, or shared state only when the requested outcome requires it.
-- Create an app-managed worktree only when the human explicitly requests a new worktree or branch. Never use worktree creation merely to obtain isolation or replace unavailable agent capability.
-- Once the user has explicitly authorized the operation, execute it without asking again unless a destructive ambiguity remains.
+- Pi may choose `sc` orchestration whenever agents, delegation, parallel work, teams, or session coordination materially help the task; no special SC keyword or additional permission check is required.
+- Generic requests for subagents, workers, reviewers, delegation, or parallel work may be fulfilled through SC. Use provider-native subagents when the human explicitly requests native provider behavior or SC lacks the required capability.
+- Choose delegation based on concrete benefit rather than task size alone.
+- Keep tabs, panes, views, chats, agents, review threads, and shared state scoped to the requested work. Prefer non-disruptive launches with `--active keep`.
+- Require explicit human intent for managed worktree creation or deletion, target-branch changes, force termination, destructive cleanup, closing or rearranging existing user sessions, and review-thread mutations unrelated to the requested workflow.
+- Never use worktree creation merely to obtain delegation isolation or replace unavailable agent capability.
+- Once the operation is selected and its scope is clear, execute it without asking again unless a destructive ambiguity remains.
 
 ## Step 2: Load current guidance
 

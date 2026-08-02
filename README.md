@@ -31,16 +31,16 @@ Add provider credentials to `~/.pi/agent/auth.json` and restart Pi. The optional
 ## Architecture
 
 - **Workbench** (`extensions/workbench/`) is the durable layer for plans, todos, and role artifacts. It identifies Git repositories by common directory, so managed worktrees share one run history.
-- **Superconductor** (`sc`) is the runtime control plane for explicitly requested visible sessions, labels, layouts, teams, coordination state, managed worktrees, and in-app reviews.
+- **Superconductor** (`sc`) is the default runtime control plane for delegated work, visible sessions, labels, layouts, teams, coordination state, managed worktrees, and in-app reviews.
 - **Skills and prompts** define the planner, coordinator, scout, worker, reviewer, and architecture-review contracts.
 
 A Workbench run contains `run.json`, `plan.md`, `todos/`, and `artifacts/`. SC labels and coordination-state are runtime addresses, never the durable source of task completion. See [`extensions/workbench/README.md`](extensions/workbench/README.md) for the storage and tool contract.
 
 ## Orchestration policy
 
-Superconductor is opt-in. Use it only when the human explicitly requests SC/Superconductor/super.engineering/orchestration, names another provider or model for delegated work, or requests app-managed UI such as tabs, panes, views, splits, or side-by-side agents. Generic requests for subagents, workers, reviewers, delegation, or parallel work use the current provider's native subagent capability; they do not authorize `sc` mutations.
+Inside super.engineering, Superconductor is available by default. Pi may use it for agents, workers, reviewers, delegation, parallel work, teams, and session coordination whenever doing so materially helps the task. Generic agent and delegation requests may be fulfilled through SC without a special trigger or an additional permission check. Provider-native subagents remain appropriate when the human explicitly requests native provider behavior or SC lacks the required capability.
 
-Before mutating SC-managed state, load the matching live guide:
+Before the first mutation in an SC-managed area, load the matching live guide:
 
 | Outcome | Required command |
 |---|---|
@@ -49,15 +49,15 @@ Before mutating SC-managed state, load the matching live guide:
 | Managed worktrees or branches | `sc instructions worktree` |
 | In-app review threads | `sc instructions review` |
 
-Managed worktree creation/deletion, destructive cleanup, and in-app review-thread changes require explicit authorization. Exact `/plan` provides that authorization only for its run-scoped final-review lifecycle; it does not authorize unrelated thread maintenance. Operational recipes launch delegated Pi sessions with `--provider pi --ui terminal`; chat mode is an explicit app UI exception. Pi `set_tab_title` is not authoritative for SC-managed tabs because SC auto-titling can replace it, so use `sc tab title` only for a human-requested title mutation. Launch is only dispatch: coordinators wait, read the exact target, check errors, and verify the corresponding Workbench artifact and todo state before advancing.
+Explicit human intent remains required for managed worktree creation/deletion, target-branch changes, force termination, destructive cleanup, closing or rearranging existing user sessions, and review-thread mutations unrelated to the requested workflow. The `/plan` contract includes its run-scoped final-review lifecycle, but not unrelated thread maintenance. Operational recipes launch delegated Pi sessions with `--provider pi --ui terminal`; chat mode is an explicit app UI exception. Pi `set_tab_title` is not authoritative for SC-managed tabs because SC auto-titling can replace it, so use `sc tab title` only for a human-requested title mutation. Launch is only dispatch: coordinators wait, read the exact target, check errors, and verify the corresponding Workbench artifact and todo state before advancing.
 
 ## Workflows and roles
 
-- **`/plan <request>`** is an explicit, scoped SC trigger. Planning remains interactive in the current visible Pi chat through the final approach checkpoint. That chat then creates one Workbench run, writes `plan.md` and todos, coordinates execution through SC, and completes the run with SC's built-in final-review lifecycle plus the durable Workbench review artifact.
-- **Ordinary planning language** stays in the current chat unless another explicit SC trigger is present.
+- **`/plan <request>`** guarantees the complete SC workflow. Planning remains interactive in the current visible Pi chat through the final approach checkpoint. That chat then creates one Workbench run, writes `plan.md` and todos, coordinates execution through SC, and completes the run with SC's built-in final-review lifecycle plus the durable Workbench review artifact.
+- **Ordinary planning language** stays in the current chat, but the coordinator may use SC for requested research, design, or execution when it helps. Planning language alone does not request implementation.
 - **Scouts** are read-only and write `artifacts/<label>/report.md`.
 - **Workers** join the supplied run, claim exactly one todo, verify their implementation, write `artifacts/<label>/result.md`, then complete or block it. Source-writing workers are sequential in a shared worktree unless managed worktrees were explicitly requested.
-- **Reviewers** do not fix code; they always write the durable `artifacts/<label>/review.md`. Ordinary reviews are artifact-only unless the human directly authorizes SC review. A reviewer launched by exact `/plan` always uses the run-scoped SC review lifecycle: load `sc instructions review`, inspect and classify every open thread against the current diff, reply to and resolve only comments verified as addressed, leave still-actionable or unrelated comments untouched, and publish each new finding or one run-scoped `[APPROVED]` entry. The reviewer verifies the resulting comment IDs/states with review list/get commands and records them in the Workbench artifact; neither SC state nor an idle session replaces that durable completion record.
+- **Reviewers** do not fix code; they always write the durable `artifacts/<label>/review.md`. Reviews use in-app SC threads when the requested workflow includes them; otherwise they are artifact-only. A reviewer launched by exact `/plan` always uses the run-scoped SC review lifecycle: load `sc instructions review`, inspect and classify every open thread against the current diff, reply to and resolve only comments verified as addressed, leave still-actionable or unrelated comments untouched, and publish each new finding or one run-scoped `[APPROVED]` entry. The reviewer verifies the resulting comment IDs/states with review list/get commands and records them in the Workbench artifact; neither SC state nor an idle session replaces that durable completion record.
 - **Architecture review** records its durable findings at `artifacts/architecture/review.md`; interface alternatives use separate design artifacts.
 
 ## Skills and prompt templates
@@ -67,7 +67,7 @@ Managed worktree creation/deletion, destructive cleanup, and in-app review-threa
 | `skills/plan/` | Interactive plan-to-coordinator workflow |
 | `skills/scout/`, `skills/worker/`, `skills/review/` | Workbench role contracts |
 | `skills/write-todos/` | Worker-ready durable todo guidance |
-| `skills/superconductor/` | Explicit SC control-plane procedures and recipes |
+| `skills/superconductor/` | Default SC control-plane procedures and recipes |
 | `skills/improve-codebase-architecture/` | Architecture deepening and interface-design workflow |
 | `skills/commit/` | Required procedure before every Git commit |
 | `skills/add-mcp-server/`, `skills/code-simplifier/`, `skills/frontend-design/`, `skills/github/`, `skills/iterate-pr/`, `skills/learn-codebase/`, `skills/session-reader/`, `skills/skill-creator/` | Specialized Pi workflows |

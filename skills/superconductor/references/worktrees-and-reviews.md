@@ -1,6 +1,6 @@
 # Superconductor Worktrees and Reviews
 
-Use app-managed worktree and review commands only for explicit human requests. Read live instructions before mutations.
+Use app-managed worktree commands only for explicit human requests. Use review commands only as part of the requested review workflow or an explicit human request. Read live instructions before mutations.
 
 ## Managed worktrees
 

@@ -26,13 +26,13 @@ Before launching designers, write a user-facing explanation of the problem space
 - The dependencies it would rely on, and which category they fall into (see [DEEPENING.md](DEEPENING.md))
 - A rough illustrative code sketch to ground the constraints — not a proposal, just a way to make the constraints concrete
 
-Show this to the user and write the problem framing to `artifacts/architecture/review.md`, then proceed to Step 2. The user can read and think while authorized parallel designers work.
+Show this to the user and write the problem framing to `artifacts/architecture/review.md`, then proceed to Step 2. The user can read and think while parallel designers work.
 
-### 2. Establish authorization and preflight
+### 2. Preflight
 
-A request for alternative interfaces, parallel work, or designers does not by itself authorize Superconductor orchestration. Use SC sessions only when the human has explicitly asked for SC/Superconductor/orchestration, an app-managed visible layout, or another qualifying trigger in the global policy. If no trigger exists, ask whether the user wants visible SC parallel designers or prefers the coordinator to perform Design It Twice sequentially in the current chat. Do not mutate SC state while waiting for that choice.
+Use SC sessions for independent designers when parallel exploration materially improves the comparison; no special SC trigger or additional permission check is required. If SC or the required capability is unavailable, develop at least two materially different interfaces sequentially in the current chat and do not claim that path was parallel or SC-orchestrated.
 
-For authorized SC exploration, before the first mutation:
+Before the first SC mutation:
 
 1. Read `~/.pi/agent/skills/superconductor/SKILL.md` and `~/.pi/agent/skills/superconductor/references/orchestration.md` completely.
 2. Run `sc instructions orchestration` and `sc instructions layout`.
@@ -41,7 +41,7 @@ For authorized SC exploration, before the first mutation:
 
 Do not create a managed worktree for design exploration. Designers are read-only and may share the current worktree.
 
-If the user chooses current-chat exploration instead, develop at least two materially different interfaces sequentially, write each completed option to a separate deterministic design artifact, then perform the comparison in Step 4. Do not claim that this path was parallel or SC-orchestrated.
+When using current-chat exploration instead, write each completed option to a separate deterministic design artifact, then perform the comparison in Step 4.
 
 ### 3. Launch 3+ independent designers
 
