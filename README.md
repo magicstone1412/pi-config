@@ -49,7 +49,7 @@ Before mutating SC-managed state, load the matching live guide:
 | Managed worktrees or branches | `sc instructions worktree` |
 | In-app review threads | `sc instructions review` |
 
-Managed worktree creation/deletion, destructive cleanup, and in-app review-thread changes require explicit authorization. Exact `/plan` provides that authorization only for its run-scoped final-review lifecycle; it does not authorize unrelated thread maintenance. Operational recipes launch delegated Pi sessions with `--provider pi --ui terminal`; chat mode is an explicit app UI exception. Pi `set_tab_title` is not authoritative for SC-managed tabs because SC auto-titling can replace it, so use `sc tab title` only for a human-requested title mutation. Launch is only dispatch: coordinators wait, read the exact target, check errors, and verify the corresponding Workbench artifact and todo state before advancing.
+Managed worktree creation/deletion, destructive cleanup, and in-app review-thread changes require explicit authorization. Exact `/plan` provides that authorization only for its run-scoped final-review lifecycle; it does not authorize unrelated thread maintenance. Operational recipes launch delegated Pi sessions with `--provider pi --ui terminal`; chat mode is an explicit app UI exception. Managed terminal title updates use `sc tab title "$TITLE" --to "id:terminal:$SUPERCONDUCTOR_TERMINAL_ID" --json` and verify `response.new_title`. Launch is only dispatch: coordinators wait, read the exact target, check errors, and verify the corresponding Workbench artifact and todo state before advancing.
 
 ## Workflows and roles
 

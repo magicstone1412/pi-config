@@ -91,7 +91,7 @@ Do not launch a replacement agent for a follow-up to an existing target.
 - Use the current worktree explicitly when needed: `--worktree "$PWD"`.
 - For long or shell-sensitive layout prompts, use `sc layout run --from-file` with JSONL—not plaintext. Each line requires `label` and `initial_message` and may include `system_prompt`; construct records with `jq -cn --arg ...` and remove the file afterward.
 - Pass the real task and relevant context, not a meta-prompt asking the new agent to rediscover the task.
-- Pi `set_tab_title` is not authoritative for SC-managed tabs: SC auto-titling can replace it. Use `sc tab title` only when the human explicitly requests that UI title mutation.
+- In a managed Pi terminal, update the app tab title with `sc tab title "$TITLE" --to "id:terminal:$SUPERCONDUCTOR_TERMINAL_ID" --json`, and verify that `response.new_title` matches. Keep the stable target explicit because an untargeted command may not update the app tab.
 - Use `--kill` only when the user requests force termination or normal cancellation fails.
 - Never treat successful dispatch as completed work.
 

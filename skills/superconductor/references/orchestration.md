@@ -242,4 +242,4 @@ sc workspace watch --json
 sc history list --cwd "$PWD" --main-repo MAIN_REPO
 ```
 
-Use `sc workspace open/select`, `sc section`, `sc layout set/insert/move/save/apply`, and `sc tab title` only for an explicitly requested UI outcome. Pi `set_tab_title` is not authoritative for an SC-managed tab because SC auto-titling can replace it; use `sc tab title` only for the explicitly requested title mutation. Inspect current help first.
+Use `sc workspace open/select`, `sc section`, and `sc layout set/insert/move/save/apply` only for an explicitly requested UI outcome. In a managed Pi terminal, update the app tab title with `sc tab title "$TITLE" --to "id:terminal:$SUPERCONDUCTOR_TERMINAL_ID" --json` and verify that `response.new_title` matches. Do not omit the stable target: the untargeted form may resolve without changing the app tab. Inspect current help first.

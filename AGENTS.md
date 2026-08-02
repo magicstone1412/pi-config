@@ -163,6 +163,8 @@ Use Superconductor only when the human explicitly asks for SC, Superconductor, s
 
 For an explicitly authorized SC workflow, the coordinator creates one Workbench run with `run_workspace`, writes `plan.md`, and creates durable todos. Every launched Pi role receives the run ID, role, label, and optional todo ID, and joins first with `run_workspace({ action: "join", ... })`. Use Workbench artifacts and todo state as the durable record; SC labels and coordination-state are runtime-only controls.
 
+In a Superconductor-managed Pi terminal, update the app tab title with `sc tab title "$TITLE" --to "id:terminal:$SUPERCONDUCTOR_TERMINAL_ID" --json`. Verify that `response.new_title` matches the requested title. Do not omit the stable target: untargeted title updates may resolve the calling session without changing the app tab.
+
 Read-only scouts may run concurrently. Source-writing workers run sequentially in a shared worktree unless the human explicitly authorizes managed worktrees. Dispatch is not completion: wait/read the launched session and verify its Workbench artifact and todo state before advancing.
 
 #### When Not to Delegate
