@@ -23,7 +23,7 @@ Add provider credentials to `~/.pi/agent/auth.json` and restart Pi. The optional
 | Thinking level | `high` |
 | Enabled models | none |
 | Theme | `dark` |
-| Thinking block | shown |
+| Thinking block | hidden |
 | Packages | `git:github.com/pasky/chrome-cdp-skill`, `git:github.com/HazAT/pi-parallel` |
 
 `models.json` holds optional local and custom provider definitions. `models-store.json` is Pi runtime state and is intentionally ignored.

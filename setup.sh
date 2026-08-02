@@ -28,7 +28,7 @@ if [ ! -f "$EXPECTED_DIR/settings.json" ]; then
     "git:github.com/pasky/chrome-cdp-skill",
     "git:github.com/HazAT/pi-parallel"
   ],
-  "hideThinkingBlock": false,
+  "hideThinkingBlock": true,
   "enabledModels": [
     "openrouter/openai/gpt-5.6-terra",
     "openrouter/openai/gpt-5.6-sol"

@@ -7,7 +7,7 @@
     "git:github.com/pasky/chrome-cdp-skill",
     "git:github.com/HazAT/pi-parallel"
   ],
-  "hideThinkingBlock": false,
+  "hideThinkingBlock": true,
   "enabledModels": [],
   "theme": "dark"
 }
