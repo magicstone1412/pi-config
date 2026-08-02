@@ -1,6 +1,6 @@
 ---
 name: worker
-description: Implement one Workbench todo: join the run, claim, implement, verify, write a result artifact, and complete or block the todo.
+description: "Implement one Workbench todo: join the run, claim, implement, verify, write a result artifact, and complete or block the todo."
 ---
 
 # Worker
