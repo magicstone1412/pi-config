@@ -81,7 +81,9 @@ The first call confirms dispatch only, and the second performs SC wait + read on
 
 ## Live agent panel
 
-Workbench renders launched and monitored agents in a bordered panel above the editor. Each row shows a compact worker/scout/reviewer identity, elapsed time, and `starting`, `running`, delegated failure, or monitoring failure state. The panel refreshes once per second, supports multiple tracked agents, preserves failed rows while the user decides how to proceed, removes completed agents, and clears when no agents remain. Rendering is width-bounded for narrow terminals and uses the active Pi theme.
+Workbench renders launched and monitored agents in a bordered panel above the editor. Each row shows a compact worker/scout/reviewer identity and elapsed time. Once the child session records model activity, the right side shows real assistant-turn count and accumulated provider cost (including nested tool, compaction, and branch-summary usage) instead of a synthetic check counter. Starting, delegated failure, and monitoring failure states remain explicit.
+
+The panel incrementally reads only newly appended JSONL session entries once per second, supports multiple tracked agents, preserves failed rows while the user decides how to proceed, removes completed agents, and clears when no agents remain. Rendering is width-bounded for narrow terminals and uses the active Pi theme.
 
 ## Durable Workbench tools
 

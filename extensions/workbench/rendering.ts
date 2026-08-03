@@ -155,6 +155,10 @@ export interface AgentPanelItem {
 	target: string;
 	startedAt: number;
 	status: AgentPanelStatus;
+	metrics?: {
+		turns: number;
+		cost: number;
+	};
 }
 
 interface AgentPanelTheme {
@@ -255,11 +259,27 @@ function panelBottom(width: number, theme: AgentPanelTheme): string {
 	return theme.fg("accent", `╰${"─".repeat(width - 2)}╯`);
 }
 
+function panelMetrics(item: AgentPanelItem): string | undefined {
+	if (!item.metrics || item.metrics.turns === 0) return undefined;
+	const turns = `${item.metrics.turns} ${item.metrics.turns === 1 ? "turn" : "turns"}`;
+	const cost = item.metrics.cost < 0.01 && item.metrics.cost > 0
+		? `$${item.metrics.cost.toFixed(3)}`
+		: `$${item.metrics.cost.toFixed(2)}`;
+	return `${turns} · ${cost}`;
+}
+
 function panelStatus(item: AgentPanelItem): { text: string; color: string } {
-	if (item.status === "failed") return { text: "failed", color: "error" };
-	if (item.status === "monitoring_failed") {
-		return { text: "monitoring failed", color: "error" };
+	const metrics = panelMetrics(item);
+	if (item.status === "failed") {
+		return { text: metrics ? `failed · ${metrics}` : "failed", color: "error" };
 	}
+	if (item.status === "monitoring_failed") {
+		return {
+			text: metrics ? `monitoring failed · ${metrics}` : "monitoring failed",
+			color: "error",
+		};
+	}
+	if (metrics) return { text: metrics, color: "accent" };
 	if (item.status === "launched") return { text: "starting…", color: "warning" };
 	return { text: "running…", color: "accent" };
 }
@@ -323,10 +343,7 @@ export function waitForAgentResultText(
 	if (expanded || isError) return toolResultText(result, true);
 	const details = result.details;
 	if (details?.status === "waiting") {
-		const attempts = typeof details.attempts === "number" && details.attempts > 1
-			? ` · check ${details.attempts}`
-			: "";
-		return `waiting · ${elapsedTimeText(details.elapsedMs)} elapsed${attempts}`;
+		return `waiting · ${elapsedTimeText(details.elapsedMs)} elapsed`;
 	}
 	if (details?.status === "completed") {
 		return `completed · ${elapsedTimeText(details.elapsedMs)} elapsed`;

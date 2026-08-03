@@ -36,6 +36,7 @@ import {
 	listRuns,
 	updateRun,
 } from "./runs.ts";
+import { SessionMetricsReader } from "./session-metrics.ts";
 import {
 	AgentWaitError,
 	inferTodoIdFromAgentLabel,
@@ -156,10 +157,12 @@ export default function workbenchExtension(pi: ExtensionAPI): void {
 	const scExec: ScExecutor = (command, args, options) => pi.exec(command, args, options);
 	interface TrackedAgent extends AgentPanelItem {
 		aliases: Set<string>;
+		metricsReader?: SessionMetricsReader;
 	}
 	const trackedAgents = new Map<string, TrackedAgent>();
 	let agentPanelCtx: any;
 	let agentPanelTimer: ReturnType<typeof setInterval> | undefined;
+	let refreshingAgentMetrics = false;
 
 	function normalizedAgentTarget(target: string): string {
 		return target.replace(/^(?:label:|id:)/, "");
@@ -170,6 +173,25 @@ export default function workbenchExtension(pi: ExtensionAPI): void {
 		return Array.from(trackedAgents.values()).find((agent) =>
 			agent.aliases.has(normalized)
 		);
+	}
+
+	async function refreshAgentMetrics(): Promise<void> {
+		if (refreshingAgentMetrics) return;
+		refreshingAgentMetrics = true;
+		try {
+			await Promise.all(Array.from(trackedAgents.values()).map(async (agent) => {
+				if (!agent.metricsReader) return;
+				try {
+					await agent.metricsReader.refresh();
+					agent.metrics = { ...agent.metricsReader.metrics };
+				} catch {
+					// Progress metrics are optional; agent monitoring remains authoritative.
+				}
+			}));
+		} finally {
+			refreshingAgentMetrics = false;
+			updateAgentPanel();
+		}
 	}
 
 	function updateAgentPanel(ctx = agentPanelCtx): void {
@@ -191,16 +213,27 @@ export default function workbenchExtension(pi: ExtensionAPI): void {
 			{ placement: "aboveEditor" },
 		);
 		if (!agentPanelTimer) {
-			agentPanelTimer = setInterval(() => updateAgentPanel(), 1_000);
+			agentPanelTimer = setInterval(() => {
+				updateAgentPanel();
+				void refreshAgentMetrics();
+			}, 1_000);
 			agentPanelTimer.unref();
+			void refreshAgentMetrics();
 		}
 	}
 
-	function trackAgent(target: string, aliases: Array<string | undefined> = []): TrackedAgent {
+	function trackAgent(
+		target: string,
+		aliases: Array<string | undefined> = [],
+		sessionFile?: string,
+	): TrackedAgent {
 		const existing = findTrackedAgent(target);
 		if (existing) {
 			for (const alias of aliases) {
 				if (alias) existing.aliases.add(normalizedAgentTarget(alias));
+			}
+			if (!existing.metricsReader && sessionFile && path.isAbsolute(sessionFile) && sessionFile.endsWith(".jsonl")) {
+				existing.metricsReader = new SessionMetricsReader(sessionFile);
 			}
 			return existing;
 		}
@@ -210,6 +243,9 @@ export default function workbenchExtension(pi: ExtensionAPI): void {
 			startedAt: Date.now(),
 			status: "launched",
 			aliases: new Set([normalized]),
+			...(sessionFile && path.isAbsolute(sessionFile) && sessionFile.endsWith(".jsonl")
+				? { metricsReader: new SessionMetricsReader(sessionFile) }
+				: {}),
 		};
 		for (const alias of aliases) {
 			if (alias) tracked.aliases.add(normalizedAgentTarget(alias));
@@ -416,10 +452,14 @@ export default function workbenchExtension(pi: ExtensionAPI): void {
 			}
 			try {
 				const launched = await launchAgent(scExec, params, ctx.cwd, signal);
-				trackAgent(params.label, [
-					launched.identifiers.selector,
-					launched.identifiers.stableTargetId,
-				]);
+				trackAgent(
+					params.label,
+					[
+						launched.identifiers.selector,
+						launched.identifiers.stableTargetId,
+					],
+					launched.identifiers.sessionId,
+				);
 				updateAgentPanel(ctx);
 				return launchAgentToolResult(launched, ScResultLimits);
 			} catch (error) {

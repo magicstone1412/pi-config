@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
+	appendFile,
 	mkdir,
 	mkdtemp,
 	readFile,
@@ -28,6 +29,7 @@ import {
 	workbenchStatusText,
 } from "./rendering.ts";
 import { createRun, ensureWorkspaceRun, getRun, joinRun } from "./runs.ts";
+import { SessionMetricsReader } from "./session-metrics.ts";
 import {
 	buildLaunchAgentArgs,
 	buildReadAgentArgs,
@@ -685,6 +687,43 @@ describe("SC command adapter", () => {
 	});
 });
 
+describe("session progress metrics", () => {
+	test("incrementally counts assistant turns and all persisted usage costs", async () => {
+		const root = await temporaryHistoryRoot();
+		const sessionFile = path.join(root, "worker.jsonl");
+		const usage = (total: number) => ({ cost: { total } });
+		await writeFile(sessionFile, [
+			JSON.stringify({ type: "session", version: 3 }),
+			JSON.stringify({
+				type: "message",
+				message: { role: "assistant", usage: usage(0.12) },
+			}),
+			JSON.stringify({
+				type: "message",
+				message: { role: "toolResult", usage: usage(0.03) },
+			}),
+			JSON.stringify({ type: "compaction", usage: usage(0.05) }),
+			"",
+		].join("\n"));
+		const reader = new SessionMetricsReader(sessionFile);
+		await reader.refresh();
+		expect(reader.metrics.turns).toBe(1);
+		expect(reader.metrics.cost).toBeCloseTo(0.2);
+
+		const nextTurn = JSON.stringify({
+			type: "message",
+			message: { role: "assistant", usage: usage(0.4) },
+		});
+		await appendFile(sessionFile, nextTurn.slice(0, 20));
+		await reader.refresh();
+		expect(reader.metrics.turns).toBe(1);
+		await appendFile(sessionFile, `${nextTurn.slice(20)}\n`);
+		await reader.refresh();
+		expect(reader.metrics.turns).toBe(2);
+		expect(reader.metrics.cost).toBeCloseTo(0.6);
+	});
+});
+
 describe("SC model-facing results", () => {
 	test("bounds a byte-heavy launch response while preserving identifiers and raw details", () => {
 		const response = {
@@ -861,6 +900,7 @@ describe("tool rendering", () => {
 				target: "label:20260803-193815-cloudflare-migration-worker-TODO-001",
 				startedAt: 958_000,
 				status: "running" as const,
+				metrics: { turns: 12, cost: 0.84 },
 			},
 			{
 				target: "label:20260803-193815-cloudflare-migration-reviewer",
@@ -874,7 +914,7 @@ describe("tool rendering", () => {
 		expect(lines[0]).toContain("Agents");
 		expect(lines[0]).toContain("2 running");
 		expect(lines[1]).toContain("00:42  Worker · TODO-001");
-		expect(lines[1]).toContain("running…");
+		expect(lines[1]).toContain("12 turns · $0.84");
 		expect(lines[2]).toContain("starting…");
 		expect(lines.every((line) => panelTextWidth(line) === 64)).toBe(true);
 
@@ -908,7 +948,7 @@ describe("tool rendering", () => {
 		};
 		expect(launchAgentResultText(launched, false)).toBe("terminal:abc — launched");
 		expect(launchAgentResultText(launched, true)).toBe("full launch response");
-		expect(waitForAgentResultText(waiting, false)).toBe("waiting · 0:42 elapsed · check 2");
+		expect(waitForAgentResultText(waiting, false)).toBe("waiting · 0:42 elapsed");
 		expect(waitForAgentResultText(completed, false)).toBe("completed · 3:08 elapsed");
 		expect(waitForAgentResultText(completed, false, true)).toBe("full wait/read response");
 	});
