@@ -17,6 +17,7 @@ import {
 	agentName,
 	launchAgentResultText,
 	launchAgentToolResult,
+	renderAgentPanelLines,
 	runWorkspaceResultText,
 	taskLineCount,
 	taskPreview,
@@ -25,6 +26,7 @@ import {
 	waitForAgentResultText,
 	waitForAgentToolResult,
 	workbenchStatusText,
+	type AgentPanelItem,
 } from "./rendering.ts";
 import {
 	createRun,
@@ -35,6 +37,7 @@ import {
 	updateRun,
 } from "./runs.ts";
 import {
+	AgentWaitError,
 	inferTodoIdFromAgentLabel,
 	launchAgent,
 	waitForAgent,
@@ -151,6 +154,75 @@ function summarizedTodos(todos: Awaited<ReturnType<typeof listTodos>>) {
 export default function workbenchExtension(pi: ExtensionAPI): void {
 	let membership: RunMembership | undefined;
 	const scExec: ScExecutor = (command, args, options) => pi.exec(command, args, options);
+	interface TrackedAgent extends AgentPanelItem {
+		aliases: Set<string>;
+	}
+	const trackedAgents = new Map<string, TrackedAgent>();
+	let agentPanelCtx: any;
+	let agentPanelTimer: ReturnType<typeof setInterval> | undefined;
+
+	function normalizedAgentTarget(target: string): string {
+		return target.replace(/^(?:label:|id:)/, "");
+	}
+
+	function findTrackedAgent(target: string): TrackedAgent | undefined {
+		const normalized = normalizedAgentTarget(target);
+		return Array.from(trackedAgents.values()).find((agent) =>
+			agent.aliases.has(normalized)
+		);
+	}
+
+	function updateAgentPanel(ctx = agentPanelCtx): void {
+		if (!ctx?.hasUI) return;
+		agentPanelCtx = ctx;
+		if (trackedAgents.size === 0) {
+			ctx.ui.setWidget("workbench-agents", undefined);
+			if (agentPanelTimer) clearInterval(agentPanelTimer);
+			agentPanelTimer = undefined;
+			return;
+		}
+		ctx.ui.setWidget(
+			"workbench-agents",
+			(_tui: any, theme: any) => ({
+				render: (width: number) =>
+					renderAgentPanelLines(Array.from(trackedAgents.values()), width, theme),
+				invalidate() {},
+			}),
+			{ placement: "aboveEditor" },
+		);
+		if (!agentPanelTimer) {
+			agentPanelTimer = setInterval(() => updateAgentPanel(), 1_000);
+			agentPanelTimer.unref();
+		}
+	}
+
+	function trackAgent(target: string, aliases: Array<string | undefined> = []): TrackedAgent {
+		const existing = findTrackedAgent(target);
+		if (existing) {
+			for (const alias of aliases) {
+				if (alias) existing.aliases.add(normalizedAgentTarget(alias));
+			}
+			return existing;
+		}
+		const normalized = normalizedAgentTarget(target);
+		const tracked: TrackedAgent = {
+			target,
+			startedAt: Date.now(),
+			status: "launched",
+			aliases: new Set([normalized]),
+		};
+		for (const alias of aliases) {
+			if (alias) tracked.aliases.add(normalizedAgentTarget(alias));
+		}
+		trackedAgents.set(normalized, tracked);
+		return tracked;
+	}
+
+	function removeTrackedAgent(agent: TrackedAgent): void {
+		for (const [key, candidate] of trackedAgents) {
+			if (candidate === agent) trackedAgents.delete(key);
+		}
+	}
 
 	async function withClaimLease<T>(ctx: any, operation: () => Promise<T>): Promise<T> {
 		const active = membership;
@@ -274,6 +346,7 @@ export default function workbenchExtension(pi: ExtensionAPI): void {
 	}
 
 	pi.on("session_start", async (_event, ctx) => {
+		agentPanelCtx = ctx;
 		await restoreMembership(ctx);
 		if (membership || !isCleanSession(ctx.sessionManager.getEntries())) return;
 
@@ -294,6 +367,14 @@ export default function workbenchExtension(pi: ExtensionAPI): void {
 			const detail = error instanceof Error ? error.message : String(error);
 			ctx.ui.notify(`Workbench workspace initialization failed: ${detail}`, "error");
 		}
+	});
+
+	pi.on("session_shutdown", async (_event, ctx) => {
+		if (agentPanelTimer) clearInterval(agentPanelTimer);
+		agentPanelTimer = undefined;
+		trackedAgents.clear();
+		ctx.ui.setWidget("workbench-agents", undefined);
+		agentPanelCtx = undefined;
 	});
 
 	pi.on("before_agent_start", async (event) => {
@@ -335,6 +416,11 @@ export default function workbenchExtension(pi: ExtensionAPI): void {
 			}
 			try {
 				const launched = await launchAgent(scExec, params, ctx.cwd, signal);
+				trackAgent(params.label, [
+					launched.identifiers.selector,
+					launched.identifiers.stableTargetId,
+				]);
+				updateAgentPanel(ctx);
 				return launchAgentToolResult(launched, ScResultLimits);
 			} catch (error) {
 				if (todoId) {
@@ -375,6 +461,9 @@ export default function workbenchExtension(pi: ExtensionAPI): void {
 		}),
 		async execute(_id, params, signal, onUpdate, ctx) {
 			requireMembership();
+			const tracked = trackAgent(params.target);
+			tracked.status = "running";
+			updateAgentPanel(ctx);
 			const startedAt = Date.now();
 			let attempts = 1;
 			const pollIntervalMs = 120_000;
@@ -398,7 +487,15 @@ export default function workbenchExtension(pi: ExtensionAPI): void {
 					attempts = progress.attempts;
 					publishWaitingState();
 				});
+				removeTrackedAgent(tracked);
+				updateAgentPanel(ctx);
 				return waitForAgentToolResult(params.target, result, ScResultLimits);
+			} catch (error) {
+				if (error instanceof AgentWaitError && error.kind !== "cancelled") {
+					tracked.status = error.kind === "agent_failed" ? "failed" : "monitoring_failed";
+					updateAgentPanel(ctx);
+				}
+				throw error;
 			} finally {
 				if (progressTimer) clearInterval(progressTimer);
 			}

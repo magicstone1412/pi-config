@@ -13,8 +13,11 @@ import path from "node:path";
 import { listArtifacts, readArtifact, resolveArtifactPath, writeArtifact } from "./artifacts.ts";
 import {
 	agentName,
+	agentPanelName,
 	launchAgentResultText,
 	launchAgentToolResult,
+	panelTextWidth,
+	renderAgentPanelLines,
 	runWorkspaceResultText,
 	taskLineCount,
 	taskPreview,
@@ -849,6 +852,45 @@ describe("tool rendering", () => {
 		expect(taskPreview(undefined)).toBe("");
 		expect(taskLineCount(undefined)).toBe(0);
 		expect(agentName(undefined)).toBe("(unlabeled)");
+	});
+
+	test("renders a bounded live agent panel with compact Workbench identities", () => {
+		const theme = { fg: (_color: string, text: string) => text };
+		const items = [
+			{
+				target: "label:20260803-193815-cloudflare-migration-worker-TODO-001",
+				startedAt: 958_000,
+				status: "running" as const,
+			},
+			{
+				target: "label:20260803-193815-cloudflare-migration-reviewer",
+				startedAt: 995_000,
+				status: "launched" as const,
+			},
+		];
+		expect(agentPanelName(items[0]!.target)).toBe("Worker · TODO-001");
+		const lines = renderAgentPanelLines(items, 64, theme, 1_000_000);
+		expect(lines).toHaveLength(4);
+		expect(lines[0]).toContain("Agents");
+		expect(lines[0]).toContain("2 running");
+		expect(lines[1]).toContain("00:42  Worker · TODO-001");
+		expect(lines[1]).toContain("running…");
+		expect(lines[2]).toContain("starting…");
+		expect(lines.every((line) => panelTextWidth(line) === 64)).toBe(true);
+
+		const failed = renderAgentPanelLines(
+			[{ ...items[0]!, status: "monitoring_failed" }],
+			32,
+			theme,
+			1_000_000,
+		);
+		expect(failed[0]).toContain("1 failed");
+		expect(failed[1]).toContain("monitoring failed");
+		for (const width of [0, 1, 2, 8]) {
+			for (const line of renderAgentPanelLines(items, width, theme, 1_000_000)) {
+				expect(panelTextWidth(line)).toBeLessThanOrEqual(width);
+			}
+		}
 	});
 
 	test("summarizes launch, pending wait, completion, and errors", () => {

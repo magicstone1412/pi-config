@@ -79,6 +79,10 @@ read_artifact({ path: "artifacts/RUN_ID-worker-TODO-001/result.md" })
 
 The first call confirms dispatch only, and the second performs SC wait + read only. The coordinator advances only after the todo and artifact provide the required durable acceptance evidence and the worker's recorded focused commit SHA is verified.
 
+## Live agent panel
+
+Workbench renders launched and monitored agents in a bordered panel above the editor. Each row shows a compact worker/scout/reviewer identity, elapsed time, and `starting`, `running`, delegated failure, or monitoring failure state. The panel refreshes once per second, supports multiple tracked agents, preserves failed rows while the user decides how to proceed, removes completed agents, and clears when no agents remain. Rendering is width-bounded for narrow terminals and uses the active Pi theme.
+
 ## Durable Workbench tools
 
 - `run_workspace` — create, join, inspect, list, or update runs.
