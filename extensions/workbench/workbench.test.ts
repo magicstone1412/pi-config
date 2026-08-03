@@ -33,6 +33,8 @@ import {
 	extractLaunchIdentifiers,
 	inferTodoIdFromAgentLabel,
 	waitForAgent,
+	AgentWaitError,
+	ScCommandError,
 	type ScExecutor,
 } from "./sc.ts";
 import { resolveRepository, withFileLock } from "./storage.ts";
@@ -517,11 +519,20 @@ describe("SC command adapter", () => {
 		expect(args.filter((argument) => argument === prompt)).toHaveLength(1);
 	});
 
-	test("waits and reads sequentially against the same target with one abort signal", async () => {
+	test("retries idle timeouts internally, then reads with one abort signal", async () => {
 		const calls: Array<{ command: string; args: string[]; signal?: AbortSignal }> = [];
+		const progress: number[] = [];
 		const controller = new AbortController();
 		const exec: ScExecutor = async (command, args, options) => {
 			calls.push({ command, args, signal: options?.signal });
+			if (calls.length === 1) {
+				return {
+					stdout: JSON.stringify({ error: "agent wait timed out before all targets became idle" }),
+					stderr: "",
+					code: 4,
+					killed: false,
+				};
+			}
 			return {
 				stdout: JSON.stringify({ kind: args[1], response: { ok: true } }),
 				stderr: "",
@@ -531,19 +542,27 @@ describe("SC command adapter", () => {
 		};
 		const input = { target: "id:terminal:abc", timeoutMs: 120_000, last: 20 };
 
-		const result = await waitForAgent(exec, input, projectRoot, controller.signal);
+		const result = await waitForAgent(
+			exec,
+			input,
+			projectRoot,
+			controller.signal,
+			(update) => progress.push(update.attempts),
+		);
 
-		expect(result).toEqual({
-			wait: { kind: "wait", response: { ok: true } },
-			read: { kind: "read", response: { ok: true } },
-		});
-		expect(calls).toHaveLength(2);
+		expect(result.wait).toEqual({ kind: "wait", response: { ok: true } });
+		expect(result.read).toEqual({ kind: "read", response: { ok: true } });
+		expect(result.attempts).toBe(2);
+		expect(result.elapsedMs).toBeGreaterThanOrEqual(0);
+		expect(progress).toEqual([1, 2]);
+		expect(calls).toHaveLength(3);
 		expect(calls[0]).toEqual({
 			command: "sc",
 			args: buildWaitForAgentArgs(input, projectRoot),
 			signal: controller.signal,
 		});
-		expect(calls[1]).toEqual({
+		expect(calls[1]).toEqual(calls[0]);
+		expect(calls[2]).toEqual({
 			command: "sc",
 			args: buildReadAgentArgs(input, projectRoot),
 			signal: controller.signal,
@@ -564,7 +583,7 @@ describe("SC command adapter", () => {
 
 		await expect(
 			waitForAgent(exec, { target: "label:worker" }, projectRoot),
-		).rejects.toThrow("target error: provider failed");
+		).rejects.toThrow("delegated agent failed or became unavailable: provider failed");
 		expect(calls).toHaveLength(1);
 		expect(calls[0]?.slice(0, 2)).toEqual(["agent", "wait"]);
 	});
@@ -619,6 +638,48 @@ describe("SC command adapter", () => {
 		});
 		expect(extractLaunchIdentifiers({ response: { sessions: [{}] } })).toEqual({});
 	});
+
+	test("classifies command failures and escalates monitoring outages semantically", async () => {
+		const timeout = executeScJson(
+			async () => ({
+				stdout: JSON.stringify({ error: "agent wait timed out before all targets became idle" }),
+				stderr: "",
+				code: 4,
+				killed: false,
+			}),
+			["agent", "wait"],
+		);
+		await expect(timeout).rejects.toMatchObject({ kind: "timeout" });
+
+		const unavailableExec: ScExecutor = async () => ({
+			stdout: JSON.stringify({ error: "websocket connection unavailable" }),
+			stderr: "",
+			code: 5,
+			killed: false,
+		});
+		try {
+			await waitForAgent(unavailableExec, { target: "label:worker" }, projectRoot);
+			expect.unreachable();
+		} catch (error) {
+			expect(error).toBeInstanceOf(AgentWaitError);
+			expect(error).toMatchObject({
+				kind: "monitoring_unavailable",
+				agentMayStillBeRunning: true,
+			});
+			expect((error as Error).message).toContain("websocket connection unavailable");
+			expect((error as Error).message).toContain("Ask the user whether to retry monitoring");
+		}
+
+		try {
+			await executeScJson(async () => {
+				throw new Error("API unavailable");
+			}, ["agent", "wait"]);
+			expect.unreachable();
+		} catch (error) {
+			expect(error).toBeInstanceOf(ScCommandError);
+			expect(error).toMatchObject({ kind: "control_plane", detail: "API unavailable" });
+		}
+	});
 });
 
 describe("SC model-facing results", () => {
@@ -659,7 +720,7 @@ describe("SC model-facing results", () => {
 
 		const result = waitForAgentToolResult(
 			"label:worker-TODO-003",
-			{ wait, read },
+			{ wait, read, attempts: 1, elapsedMs: 42_000 },
 			ScResultLimits,
 		);
 		const text = result.content[0].text;
@@ -797,16 +858,16 @@ describe("tool rendering", () => {
 		};
 		const waiting = {
 			content: [{ type: "text", text: "waiting" }],
-			details: { status: "waiting", target: "label:worker" },
+			details: { status: "waiting", target: "label:worker", elapsedMs: 42_000, attempts: 2 },
 		};
 		const completed = {
 			content: [{ type: "text", text: "full wait/read response" }],
-			details: { status: "completed", target: "label:worker" },
+			details: { status: "completed", target: "label:worker", elapsedMs: 188_000 },
 		};
 		expect(launchAgentResultText(launched, false)).toBe("terminal:abc — launched");
 		expect(launchAgentResultText(launched, true)).toBe("full launch response");
-		expect(waitForAgentResultText(waiting, false)).toBe("label:worker — waiting");
-		expect(waitForAgentResultText(completed, false)).toBe("label:worker — completed");
+		expect(waitForAgentResultText(waiting, false)).toBe("waiting · 0:42 elapsed · check 2");
+		expect(waitForAgentResultText(completed, false)).toBe("completed · 3:08 elapsed");
 		expect(waitForAgentResultText(completed, false, true)).toBe("full wait/read response");
 	});
 });

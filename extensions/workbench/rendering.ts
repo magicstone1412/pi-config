@@ -164,6 +164,19 @@ export function launchAgentResultText(
 	return toolResultText(result, false);
 }
 
+function elapsedTimeText(milliseconds: unknown): string {
+	if (typeof milliseconds !== "number" || !Number.isFinite(milliseconds) || milliseconds < 0) {
+		return "0:00";
+	}
+	const totalSeconds = Math.floor(milliseconds / 1000);
+	const hours = Math.floor(totalSeconds / 3600);
+	const minutes = Math.floor((totalSeconds % 3600) / 60);
+	const seconds = String(totalSeconds % 60).padStart(2, "0");
+	return hours > 0
+		? `${hours}:${String(minutes).padStart(2, "0")}:${seconds}`
+		: `${minutes}:${seconds}`;
+}
+
 export function waitForAgentResultText(
 	result: ToolResult,
 	expanded: boolean,
@@ -171,7 +184,14 @@ export function waitForAgentResultText(
 ): string {
 	if (expanded || isError) return toolResultText(result, true);
 	const details = result.details;
-	if (details?.status === "waiting") return `${agentName(details.target)} — waiting`;
-	if (details?.status === "completed") return `${agentName(details.target)} — completed`;
+	if (details?.status === "waiting") {
+		const attempts = typeof details.attempts === "number" && details.attempts > 1
+			? ` · check ${details.attempts}`
+			: "";
+		return `waiting · ${elapsedTimeText(details.elapsedMs)} elapsed${attempts}`;
+	}
+	if (details?.status === "completed") {
+		return `completed · ${elapsedTimeText(details.elapsedMs)} elapsed`;
+	}
 	return toolResultText(result, false);
 }

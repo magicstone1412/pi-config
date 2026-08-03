@@ -269,19 +269,19 @@ For each todo:
    ```
 
    Pass `todoId: "TODO-NNN"` to `launch_agent`; Workbench reserves it atomically before dispatch. If recovery is genuinely required, force-release the stale claim/reservation and use a new retry label such as `<worker-label>-retry-2`.
-3. Collect the same exact target with the native wait/read primitive:
+3. Collect the same exact target with one `wait_for_agent` call:
 
    ```text
-   wait_for_agent({ target: "label:WORKER_LABEL", timeoutMs: 120000, last: 20 })
+   wait_for_agent({ target: "label:WORKER_LABEL", last: 20 })
    ```
 
-   `wait_for_agent` runs `sc agent wait --idle` and then `sc agent read` against that same target. If the native tool is unavailable or the target shape is unsupported, use those raw commands in the same order with `--worktree "$PWD" --output json`.
-4. Check `target_error`, provider failure, incomplete output, and timeouts in the returned SC wait/read details.
+   Call it once. It reports elapsed time and handles ordinary idle-check timeouts internally before reading the completed target. Do not issue repeated wait calls while it is pending.
+4. If `wait_for_agent` reports a delegated-agent or monitoring failure, stop orchestration, explain whether the worker may still be running, and ask the user whether to inspect, retry, or stop. Never relaunch automatically.
 5. Read the todo with `todo({ action: "get", id: "TODO-NNN" })` and read `artifacts/<worker-label>/result.md`.
 6. Verify the recorded commit SHA with `git show --stat --oneline <sha>` and confirm it contains only the todo's scoped changes.
 7. Advance only when the todo is durably `done`, the result artifact exists, its verification evidence satisfies the acceptance criteria, and its focused commit is verified.
 
-A successful launch/send, an idle target, or a confident chat response is never completion. If clarification is needed in an existing worker session, use raw `sc agent send`, then repeat native wait/read (or raw wait → read when required) → durable verification; do not launch a replacement merely for a follow-up. If the worker blocks, inspect the recorded reason and fix missing plan/todo context before retrying. Never mark the todo done on the worker’s behalf to hide a failed handoff. Never force-release based only on idle/aborted/WebSocket state; Workbench fencing is the safety boundary for an explicitly recovered stale worker.
+A successful launch/send, an idle target, or a confident chat response is never completion. If clarification is needed in an existing worker session, use raw `sc agent send`, then collect it with one new `wait_for_agent` call and perform durable verification; do not launch a replacement merely for a follow-up. If the worker blocks, inspect the recorded reason and fix missing plan/todo context before retrying. Never mark the todo done on the worker’s behalf to hide a failed handoff. Never force-release based only on idle/aborted/WebSocket state; Workbench fencing is the safety boundary for an explicitly recovered stale worker.
 
 ## Final Review
 

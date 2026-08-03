@@ -362,25 +362,46 @@ export default function workbenchExtension(pi: ExtensionAPI): void {
 		name: "wait_for_agent",
 		label: "Wait for Agent",
 		description:
-			"Wait for one exact SC target to become idle, then read that same target. Requires active Workbench membership. Model-facing output is limited to 50 KB or 2,000 lines; retry with a smaller last value if truncated. Runtime completion does not replace durable Workbench todo and artifact checks.",
-		promptSnippet: "Wait for an exact SC agent target to become idle, then read its response",
+			"Wait for one exact SC target to become idle, handling ordinary idle-wait timeouts internally, then read that same target. The call remains active until completion, cancellation, delegated-agent failure, or monitoring failure. Requires active Workbench membership. Model-facing output is limited to 50 KB or 2,000 lines; retry with a smaller last value if truncated. Runtime completion does not replace durable Workbench todo and artifact checks.",
+		promptSnippet: "Wait once for an exact SC agent target to finish, then read its response",
 		promptGuidelines: [
-			"Call wait_for_agent with the exact label selector or stable target returned by launch_agent.",
+			"Call wait_for_agent once with the exact label selector or stable target returned by launch_agent; ordinary idle-wait timeouts are handled internally, so do not repeat the call while it is pending.",
+			"If wait_for_agent reports a delegated-agent or monitoring failure, stop orchestration, explain whether the worker may still be running, and ask the user whether to inspect, retry monitoring or the task, or stop it. Do not relaunch automatically.",
 			"After wait_for_agent completes, inspect the assigned Workbench todo and result artifact before advancing the workflow.",
 		],
 		parameters: Type.Object({
 			target: Type.String({ description: "Exact SC target, such as label:worker or id:terminal:UUID" }),
-			timeoutMs: Type.Optional(Type.Integer({ minimum: 1, description: "SC idle-wait timeout in milliseconds" })),
 			last: Type.Optional(Type.Integer({ minimum: 1, description: "Number of transcript entries to read" })),
 		}),
 		async execute(_id, params, signal, onUpdate, ctx) {
 			requireMembership();
-			onUpdate?.({
-				content: [{ type: "text", text: `Waiting for ${params.target} to become idle` }],
-				details: { status: "waiting", target: params.target },
-			});
-			const result = await waitForAgent(scExec, params, ctx.cwd, signal);
-			return waitForAgentToolResult(params.target, result, ScResultLimits);
+			const startedAt = Date.now();
+			let attempts = 1;
+			const pollIntervalMs = 120_000;
+			const publishWaitingState = () => {
+				onUpdate?.({
+					content: [{ type: "text", text: `Waiting for ${params.target} to become idle` }],
+					details: {
+						status: "waiting",
+						target: params.target,
+						attempts,
+						elapsedMs: Date.now() - startedAt,
+						pollIntervalMs,
+					},
+				});
+			};
+			publishWaitingState();
+			const progressTimer = onUpdate ? setInterval(publishWaitingState, 1_000) : undefined;
+			progressTimer?.unref();
+			try {
+				const result = await waitForAgent(scExec, params, ctx.cwd, signal, (progress) => {
+					attempts = progress.attempts;
+					publishWaitingState();
+				});
+				return waitForAgentToolResult(params.target, result, ScResultLimits);
+			} finally {
+				if (progressTimer) clearInterval(progressTimer);
+			}
 		},
 		renderCall(args, theme) {
 			return renderAgentCall("wait", args as Record<string, unknown>, theme);

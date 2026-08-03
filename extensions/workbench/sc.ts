@@ -45,6 +45,46 @@ export interface LaunchAgentResponse {
 export interface WaitForAgentResponse {
 	wait: unknown;
 	read: unknown;
+	attempts: number;
+	elapsedMs: number;
+}
+
+export type ScCommandFailureKind =
+	| "timeout"
+	| "target"
+	| "control_plane"
+	| "malformed_response"
+	| "cancelled";
+
+export class ScCommandError extends Error {
+	constructor(
+		readonly kind: ScCommandFailureKind,
+		message: string,
+		readonly detail: string,
+		readonly exitCode?: number,
+	) {
+		super(message);
+		this.name = "ScCommandError";
+	}
+}
+
+export type AgentWaitFailureKind = "agent_failed" | "monitoring_unavailable" | "cancelled";
+
+export class AgentWaitError extends Error {
+	constructor(
+		readonly kind: AgentWaitFailureKind,
+		message: string,
+		readonly agentMayStillBeRunning: boolean,
+	) {
+		super(message);
+		this.name = "AgentWaitError";
+	}
+}
+
+export interface WaitForAgentProgress {
+	attempts: number;
+	elapsedMs: number;
+	pollIntervalMs: number;
 }
 
 export function inferTodoIdFromAgentLabel(label: string): string | undefined {
@@ -138,30 +178,70 @@ export async function executeScJson(
 	args: string[],
 	signal?: AbortSignal,
 ): Promise<unknown> {
-	const result = await exec("sc", args, { signal });
 	const name = commandName(args);
+	let result: ScExecResult;
+	try {
+		result = await exec("sc", args, { signal });
+	} catch (error) {
+		const detail = error instanceof Error ? error.message : String(error);
+		const cancelled = Boolean(signal?.aborted);
+		throw new ScCommandError(
+			cancelled ? "cancelled" : "control_plane",
+			cancelled ? `${name} was cancelled` : `${name} could not connect: ${detail}`,
+			detail,
+		);
+	}
 	if (result.killed) {
-		throw new Error(signal?.aborted ? `${name} was cancelled` : `${name} was terminated`);
+		const cancelled = Boolean(signal?.aborted);
+		throw new ScCommandError(
+			cancelled ? "cancelled" : "control_plane",
+			cancelled ? `${name} was cancelled` : `${name} was terminated`,
+			cancelled ? "cancelled" : "terminated",
+			result.code,
+		);
 	}
 
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(result.stdout);
 	} catch {
+		const detail = processFailure(result);
 		if (result.code !== 0) {
-			throw new Error(`${name} failed (exit ${result.code}): ${processFailure(result)}`);
+			throw new ScCommandError(
+				"control_plane",
+				`${name} failed (exit ${result.code}): ${detail}`,
+				detail,
+				result.code,
+			);
 		}
-		throw new Error(`${name} returned malformed JSON`);
+		throw new ScCommandError(
+			"malformed_response",
+			`${name} returned malformed JSON`,
+			"malformed JSON",
+		);
 	}
 
 	const targetError = findNamedValue(parsed, "target_error");
 	if (targetError !== undefined) {
-		throw new Error(`${name} target error: ${errorDescription(targetError)}`);
+		const detail = errorDescription(targetError);
+		throw new ScCommandError(
+			"target",
+			`${name} target error: ${detail}`,
+			detail,
+			result.code,
+		);
 	}
 	if (result.code !== 0) {
 		const nestedError = findNamedValue(parsed, "error");
 		const detail = nestedError === undefined ? processFailure(result) : errorDescription(nestedError);
-		throw new Error(`${name} failed (exit ${result.code}): ${detail}`);
+		const idleTimeout = args[0] === "agent" && args[1] === "wait" &&
+			/timed out before all targets became idle/i.test(detail);
+		throw new ScCommandError(
+			idleTimeout ? "timeout" : "control_plane",
+			`${name} failed (exit ${result.code}): ${detail}`,
+			detail,
+			result.code,
+		);
 	}
 	return parsed;
 }
@@ -191,13 +271,64 @@ export async function launchAgent(
 	return { identifiers: extractLaunchIdentifiers(response), response };
 }
 
+function agentWaitFailure(error: unknown, phase: "wait" | "read"): AgentWaitError {
+	if (!(error instanceof ScCommandError)) {
+		const detail = error instanceof Error ? error.message : String(error);
+		return new AgentWaitError(
+			"monitoring_unavailable",
+			`Agent monitoring failed unexpectedly: ${detail}. The delegated agent may still be running. Ask the user whether to retry monitoring, inspect the agent tab, or stop it; do not relaunch automatically.`,
+			true,
+		);
+	}
+	if (error.kind === "cancelled") {
+		return new AgentWaitError("cancelled", "Waiting for the delegated agent was cancelled.", true);
+	}
+	if (error.kind === "target") {
+		return new AgentWaitError(
+			"agent_failed",
+			`The delegated agent failed or became unavailable: ${error.detail}. Ask the user whether to inspect the agent, retry the task, or stop it; do not relaunch automatically.`,
+			false,
+		);
+	}
+	const context = phase === "read"
+		? "The agent became idle, but its transcript could not be retrieved"
+		: "The connection used to monitor the delegated agent failed";
+	return new AgentWaitError(
+		"monitoring_unavailable",
+		`${context}: ${error.detail}. The delegated agent may still be running. Ask the user whether to retry monitoring, inspect the agent tab, or stop it; do not relaunch automatically.`,
+		true,
+	);
+}
+
 export async function waitForAgent(
 	exec: ScExecutor,
 	input: WaitForAgentInput,
 	worktree: string,
 	signal?: AbortSignal,
+	onProgress?: (progress: WaitForAgentProgress) => void,
 ): Promise<WaitForAgentResponse> {
-	const wait = await executeScJson(exec, buildWaitForAgentArgs(input, worktree), signal);
-	const read = await executeScJson(exec, buildReadAgentArgs(input, worktree), signal);
-	return { wait, read };
+	const startedAt = Date.now();
+	const pollIntervalMs = input.timeoutMs ?? 120_000;
+	const waitInput = { ...input, timeoutMs: pollIntervalMs };
+	let attempts = 0;
+	let wait: unknown;
+
+	while (true) {
+		attempts += 1;
+		onProgress?.({ attempts, elapsedMs: Date.now() - startedAt, pollIntervalMs });
+		try {
+			wait = await executeScJson(exec, buildWaitForAgentArgs(waitInput, worktree), signal);
+			break;
+		} catch (error) {
+			if (error instanceof ScCommandError && error.kind === "timeout") continue;
+			throw agentWaitFailure(error, "wait");
+		}
+	}
+
+	try {
+		const read = await executeScJson(exec, buildReadAgentArgs(input, worktree), signal);
+		return { wait, read, attempts, elapsedMs: Date.now() - startedAt };
+	} catch (error) {
+		throw agentWaitFailure(error, "read");
+	}
 }

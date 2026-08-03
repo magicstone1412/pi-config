@@ -59,18 +59,20 @@ The result preserves SC's raw JSON response and exposes only identifiers SC actu
 ### `wait_for_agent`
 
 ```text
-wait_for_agent({ target, timeoutMs?, last? })
+wait_for_agent({ target, last? })
 ```
 
-Runs `sc agent wait --idle` for the exact target. Only after that succeeds, it runs `sc agent read` for the same target. `timeoutMs` is passed to SC's idle wait and `last` limits transcript entries read. The pending tool update represents only the in-flight SC wait.
+Waits for the exact target to become idle and then reads that same target. It checks for idle in internal 120-second windows, not against an overall deadline: ordinary interval expiry is retried inside the same tool call so the coordinator does not issue repeated waits. `last` limits transcript entries read. The pending tool result updates every second with elapsed time and shows the internal check count after an interval expires. The call remains active until completion, cancellation, delegated-agent failure, or monitoring failure.
 
-Nonzero SC exits, malformed JSON, timeouts, and structured `target_error` responses fail the tool. Cancellation is forwarded to launch, wait, and read processes. Model-facing wait/read JSON is capped at Pi's 50 KB / 2,000-line custom-tool limits while complete structured data remains in tool details. A truncation marker instructs the coordinator to call `wait_for_agent` again with a smaller `last` value for a bounded transcript. Successful wait/read output remains runtime evidence only: callers must separately verify the Workbench todo and artifact before advancing.
+Failures are classified before reaching the coordinator. A structured target/provider error becomes a delegated-agent failure. Control-plane connection errors, unavailable APIs/WebSockets, malformed responses, and transcript-read failures become monitoring failures and explicitly state that the delegated agent may still be running. These failures instruct the coordinator to stop and ask the user whether to inspect, retry, or stop rather than relaunch automatically. Cancellation is forwarded to the active wait/read process.
+
+Model-facing wait/read JSON is capped at Pi's 50 KB / 2,000-line custom-tool limits while complete structured data remains in tool details. A truncation marker instructs the coordinator to call `wait_for_agent` again with a smaller `last` value for a bounded transcript. Successful wait/read output remains runtime evidence only: callers must separately verify the Workbench todo and artifact before advancing.
 
 A coordinator's supported sequential path is therefore:
 
 ```text
 launch_agent({ label: "RUN_ID-worker-TODO-001", todoId: "TODO-001", prompt: "<complete role prompt>" })
-wait_for_agent({ target: "label:RUN_ID-worker-TODO-001", timeoutMs: 120000, last: 20 })
+wait_for_agent({ target: "label:RUN_ID-worker-TODO-001", last: 20 })
 todo({ action: "get", id: "TODO-001" })
 read_artifact({ path: "artifacts/RUN_ID-worker-TODO-001/result.md" })
 ```
