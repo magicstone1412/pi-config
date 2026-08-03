@@ -31,6 +31,7 @@ import {
 import { createRun, ensureWorkspaceRun, getRun, joinRun } from "./runs.ts";
 import { SessionMetricsReader } from "./session-metrics.ts";
 import {
+	buildGetAgentArgs,
 	buildLaunchAgentArgs,
 	buildReadAgentArgs,
 	buildWaitForAgentArgs,
@@ -573,6 +574,44 @@ describe("SC command adapter", () => {
 			args: buildReadAgentArgs(input, projectRoot),
 			signal: controller.signal,
 		});
+	});
+
+	test("does not accept the transient idle state before a launched agent starts", async () => {
+		const calls: string[][] = [];
+		const exec: ScExecutor = async (_command, args) => {
+			calls.push(args);
+			if (args[0] === "agents") {
+				const state = calls.filter((call) => call[0] === "agents").length === 1
+					? "idle"
+					: "working";
+				return {
+					stdout: JSON.stringify({ response: { agent: { state, phase: state === "working" ? "running" : "idle" } } }),
+					stderr: "",
+					code: 0,
+					killed: false,
+				};
+			}
+			return {
+				stdout: JSON.stringify({ kind: args[1], response: { ok: true } }),
+				stderr: "",
+				code: 0,
+				killed: false,
+			};
+		};
+		const input = {
+			target: "label:worker",
+			requireActivity: true,
+			startupPollMs: 1,
+		};
+		const result = await waitForAgent(exec, input, projectRoot);
+		expect(result.attempts).toBe(1);
+		expect(calls.map((call) => call.slice(0, 2))).toEqual([
+			["agents", "get"],
+			["agents", "get"],
+			["agent", "wait"],
+			["agent", "read"],
+		]);
+		expect(calls[0]).toEqual(buildGetAgentArgs(input, projectRoot));
 	});
 
 	test("does not read after a failed wait", async () => {

@@ -292,21 +292,45 @@ export default function workbenchExtension(pi: ExtensionAPI): void {
 			});
 	}
 
-	function startAgentWatcher(agent: TrackedAgent, target: string, cwd: string): void {
+	function startAgentWatcher(
+		agent: TrackedAgent,
+		target: string,
+		cwd: string,
+		assignment?: { root: string; todoId: string },
+	): void {
 		if (agentWatchers.has(agent)) return;
 		const controller = new AbortController();
 		agentWatchers.set(agent, controller);
 		attachAgentSessionMetrics(agent, target, cwd, controller.signal);
 		void waitForAgent(
 			scExec,
-			{ target, last: 20 },
+			{ target, last: 20, requireActivity: true },
 			cwd,
 			controller.signal,
 			() => {
 				agent.status = "running";
 				updateAgentPanel();
 			},
-		).then((result) => {
+		).then(async (result) => {
+			if (assignment) {
+				let todoState;
+				try {
+					todoState = await getTodo(assignment.root, assignment.todoId);
+				} catch (error) {
+					throw new AgentWaitError(
+						"monitoring_unavailable",
+						`The delegated agent became idle, but Workbench could not verify ${assignment.todoId}: ${error instanceof Error ? error.message : String(error)}. Do not treat the task as completed. Ask the user whether to inspect, retry monitoring, or stop.`,
+						true,
+					);
+				}
+				if (todoState.status !== "done") {
+					throw new AgentWaitError(
+						"agent_failed",
+						`The delegated agent became idle before completing ${assignment.todoId}; its durable status is ${todoState.status}. Do not advance or launch the next worker. Inspect the agent result and ask the user whether to retry the task or stop.`,
+						false,
+					);
+				}
+			}
 			removeTrackedAgent(agent);
 			updateAgentPanel();
 			const name = agentPanelName(agent.target);
@@ -602,14 +626,20 @@ export default function workbenchExtension(pi: ExtensionAPI): void {
 					launched.identifiers.sessionId,
 				);
 				updateAgentPanel(ctx);
-				startAgentWatcher(tracked, `label:${params.label}`, ctx.cwd);
+				startAgentWatcher(
+					tracked,
+					`label:${params.label}`,
+					ctx.cwd,
+					todoId ? { root: active.root, todoId } : undefined,
+				);
 				const toolResult = launchAgentToolResult(launched, ScResultLimits);
 				return {
 					...toolResult,
 					content: [{
 						type: "text" as const,
-						text: `Started delegated agent "${agentPanelName(params.label)}". Background monitoring is active; progress appears in the Agents panel and the result will be delivered automatically.`,
+						text: `Started delegated agent "${agentPanelName(params.label)}". Background monitoring is active; progress appears in the Agents panel and the result will be delivered automatically. Do not inspect results or launch dependent work until that message arrives.`,
 					}],
+					terminate: true,
 				};
 			} catch (error) {
 				if (todoId) {

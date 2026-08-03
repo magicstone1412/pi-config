@@ -27,6 +27,9 @@ export interface WaitForAgentInput {
 	target: string;
 	timeoutMs?: number;
 	last?: number;
+	requireActivity?: boolean;
+	startupTimeoutMs?: number;
+	startupPollMs?: number;
 }
 
 export interface ScLaunchIdentifiers {
@@ -123,6 +126,10 @@ export function buildReadAgentArgs(input: WaitForAgentInput, worktree: string): 
 	if (input.last !== undefined) args.push("--last", String(input.last));
 	args.push("--worktree", worktree, "--output", "json");
 	return args;
+}
+
+export function buildGetAgentArgs(input: WaitForAgentInput, worktree: string): string[] {
+	return ["agents", "get", "--to", input.target, "--worktree", worktree, "--output", "json"];
 }
 
 function commandName(args: string[]): string {
@@ -295,7 +302,7 @@ export async function resolveAgentSessionFile(
 	return extractAgentSessionFile(response);
 }
 
-function agentWaitFailure(error: unknown, phase: "wait" | "read"): AgentWaitError {
+function agentWaitFailure(error: unknown, phase: "start" | "wait" | "read"): AgentWaitError {
 	if (!(error instanceof ScCommandError)) {
 		const detail = error instanceof Error ? error.message : String(error);
 		return new AgentWaitError(
@@ -316,10 +323,59 @@ function agentWaitFailure(error: unknown, phase: "wait" | "read"): AgentWaitErro
 	}
 	const context = phase === "read"
 		? "The agent became idle, but its transcript could not be retrieved"
-		: "The connection used to monitor the delegated agent failed";
+		: phase === "start"
+			? "The connection failed while confirming that the delegated agent started"
+			: "The connection used to monitor the delegated agent failed";
 	return new AgentWaitError(
 		"monitoring_unavailable",
 		`${context}: ${error.detail}. The delegated agent may still be running. Ask the user whether to retry monitoring, inspect the agent tab, or stop it; do not relaunch automatically.`,
+		true,
+	);
+}
+
+function abortableDelay(milliseconds: number, signal?: AbortSignal): Promise<void> {
+	return new Promise((resolve, reject) => {
+		if (signal?.aborted) {
+			reject(new AgentWaitError("cancelled", "Waiting for the delegated agent was cancelled.", true));
+			return;
+		}
+		const finish = () => {
+			signal?.removeEventListener("abort", abort);
+			resolve();
+		};
+		const timer = setTimeout(finish, milliseconds);
+		const abort = () => {
+			clearTimeout(timer);
+			signal?.removeEventListener("abort", abort);
+			reject(new AgentWaitError("cancelled", "Waiting for the delegated agent was cancelled.", true));
+		};
+		signal?.addEventListener("abort", abort, { once: true });
+	});
+}
+
+async function waitForAgentActivity(
+	exec: ScExecutor,
+	input: WaitForAgentInput,
+	worktree: string,
+	signal?: AbortSignal,
+): Promise<void> {
+	const startupTimeoutMs = input.startupTimeoutMs ?? 30_000;
+	const deadline = Date.now() + startupTimeoutMs;
+	while (Date.now() < deadline) {
+		let response: unknown;
+		try {
+			response = await executeScJson(exec, buildGetAgentArgs(input, worktree), signal);
+		} catch (error) {
+			throw agentWaitFailure(error, "start");
+		}
+		const state = findString(response, "state");
+		const phase = findString(response, "phase");
+		if (state === "working" || phase === "running") return;
+		await abortableDelay(input.startupPollMs ?? 250, signal);
+	}
+	throw new AgentWaitError(
+		"monitoring_unavailable",
+		`The delegated agent was dispatched but did not enter a working state within ${Math.ceil(startupTimeoutMs / 1000)} seconds. It may still start later. Ask the user whether to inspect, retry monitoring, or stop it; do not treat it as completed and do not relaunch automatically.`,
 		true,
 	);
 }
@@ -332,6 +388,7 @@ export async function waitForAgent(
 	onProgress?: (progress: WaitForAgentProgress) => void,
 ): Promise<WaitForAgentResponse> {
 	const startedAt = Date.now();
+	if (input.requireActivity) await waitForAgentActivity(exec, input, worktree, signal);
 	const pollIntervalMs = input.timeoutMs ?? 120_000;
 	const waitInput = { ...input, timeoutMs: pollIntervalMs };
 	let attempts = 0;
