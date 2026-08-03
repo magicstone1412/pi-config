@@ -179,13 +179,14 @@ Use `--if-version` for competing writers. Never treat coordination-state, target
 
 ## Launch Contract
 
-Every launched Pi role prompt must contain the real task plus the exact Workbench run ID, role, SC label, and optional todo ID. It must tell the role to read its migrated skill, join that run first, write its exact durable artifact, and avoid launching additional agents. Include any commit constraint explicitly.
+Every launched Pi role prompt must contain the real task plus the exact Workbench run ID, role, SC label, and optional todo ID. It must tell the role to read its migrated skill, join that run first, write its exact durable artifact, and avoid launching additional agents. Source-writing worker prompts must require one focused verified commit, use of the commit skill, and no push.
 
 For the supported individual Pi terminal shape, prefer the Workbench-native tool after joining or creating the run:
 
 ```text
 launch_agent({
   label: "RUN_ID-worker-TODO-001",
+  todoId: "TODO-001",
   prompt: "<complete multiline role prompt>",
   model: "VERIFIED_MODEL_ID",
   reasoning: "VERIFIED_LEVEL"
@@ -264,9 +265,10 @@ For each todo:
    SC label: <exact worker label>
    Todo ID: TODO-NNN
    Join the run first with those exact values. Do not launch other agents.
-   Do not create a git commit unless this todo explicitly requests one.
+   After verification passes, read the commit skill, create one focused commit for this todo, and do not push.
    ```
 
+   Pass `todoId: "TODO-NNN"` to `launch_agent`; Workbench reserves it atomically before dispatch. If recovery is genuinely required, force-release the stale claim/reservation and use a new retry label such as `<worker-label>-retry-2`.
 3. Collect the same exact target with the native wait/read primitive:
 
    ```text
@@ -276,9 +278,10 @@ For each todo:
    `wait_for_agent` runs `sc agent wait --idle` and then `sc agent read` against that same target. If the native tool is unavailable or the target shape is unsupported, use those raw commands in the same order with `--worktree "$PWD" --output json`.
 4. Check `target_error`, provider failure, incomplete output, and timeouts in the returned SC wait/read details.
 5. Read the todo with `todo({ action: "get", id: "TODO-NNN" })` and read `artifacts/<worker-label>/result.md`.
-6. Advance only when the todo is durably `done`, the result artifact exists, and its verification evidence satisfies the acceptance criteria.
+6. Verify the recorded commit SHA with `git show --stat --oneline <sha>` and confirm it contains only the todo's scoped changes.
+7. Advance only when the todo is durably `done`, the result artifact exists, its verification evidence satisfies the acceptance criteria, and its focused commit is verified.
 
-A successful launch/send, an idle target, or a confident chat response is never completion. If clarification is needed in an existing worker session, use raw `sc agent send`, then repeat native wait/read (or raw wait → read when required) → durable verification; do not launch a replacement merely for a follow-up. If the worker blocks, inspect the recorded reason and fix missing plan/todo context before retrying. Never mark the todo done on the worker’s behalf to hide a failed handoff.
+A successful launch/send, an idle target, or a confident chat response is never completion. If clarification is needed in an existing worker session, use raw `sc agent send`, then repeat native wait/read (or raw wait → read when required) → durable verification; do not launch a replacement merely for a follow-up. If the worker blocks, inspect the recorded reason and fix missing plan/todo context before retrying. Never mark the todo done on the worker’s behalf to hide a failed handoff. Never force-release based only on idle/aborted/WebSocket state; Workbench fencing is the safety boundary for an explicitly recovered stale worker.
 
 ## Final Review
 
@@ -314,15 +317,15 @@ Use `wait_for_agent`, check its raw SC wait/read details for target errors, and 
 
 ## Post-Approval Commit Reconciliation
 
-Run this section only when the human requested a commit. Do not resolve approval entries before the commit exists.
+Source-writing workers commit before completing their todos. Do not create a redundant coordinator commit after approval.
 
 1. Confirm the final Workbench review verdict is `APPROVED` and no actionable comment remains open.
-2. Read and follow `~/.pi/agent/skills/commit/SKILL.md`, create the requested commit without skipping hooks, and verify the resulting commit SHA.
-3. After the commit succeeds, run `review-list --status open` and `review-get` for every returned ID. For every still-open comment whose body begins `[APPROVED]`, set it to `resolved`, then verify that exact status with `review-get`. This post-commit cleanup applies to all open approval entries, including historical approvals; never resolve an actionable finding or any nonapproval thread through this cleanup rule.
+2. Verify every completed implementation/fix todo's recorded commit SHA and confirm the worktree contains no uncommitted run changes.
+3. Run `review-list --status open` and `review-get` for every returned ID. For every still-open comment whose body begins `[APPROVED]`, set it to `resolved`, then verify that exact status with `review-get`. This cleanup applies to all open approval entries, including historical approvals; never resolve an actionable finding or any nonapproval thread through this rule.
 4. Re-run `review-list --status open` and verify that no `[APPROVED]` entry remains open while unrelated nonapproval threads retain their prior state.
-5. Write `artifacts/<coordinator-label>/post-commit-review-cleanup.md` with the commit SHA, every resolved approval ID, verification commands/results, and remaining open IDs/classifications.
+5. Write `artifacts/<coordinator-label>/post-commit-review-cleanup.md` with the worker commit SHAs, every resolved approval ID, verification commands/results, and remaining open IDs/classifications.
 
-A commit is not complete for the `/plan` workflow until this requested post-commit approval cleanup and durable verification record both exist.
+A `/plan` implementation is not complete until worker commits, approval cleanup, and the durable verification record all exist.
 
 ## Steering, Cleanup, and Recovery
 
@@ -359,7 +362,7 @@ Before reporting completion:
 4. Confirm every SC launch/send was followed by wait and read, with no unresolved target/provider errors.
 5. Run the plan’s targeted tests/build/typecheck and inspect `git status --short` plus the relevant diff.
 6. Confirm the final Workbench review verdict. For exact `/plan` and any other SC-review flow, re-run `review-list` and `review-get` for every relevant ID, confirm the final states match the review artifact, confirm no actionable comments remain open for an `APPROVED` verdict, and verify the current run's `[APPROVED]` entry. SC state without the Workbench artifact is incomplete, and artifact-only review cannot complete `/plan`.
-7. If the human requested a commit, verify the commit SHA, read `artifacts/<coordinator-label>/post-commit-review-cleanup.md`, re-run `review-list`/`review-get`, and confirm every open `[APPROVED]` entry was resolved only after the commit while nonapproval threads were left unchanged.
-8. Confirm that no unrequested worktree, unrelated nonapproval review-thread, cleanup, or commit operation occurred.
+7. Verify every worker commit SHA, read `artifacts/<coordinator-label>/post-commit-review-cleanup.md`, re-run `review-list`/`review-get`, and confirm every open `[APPROVED]` entry was resolved only after the worker commits while nonapproval threads were left unchanged.
+8. Confirm that no unrequested worktree, unrelated nonapproval review-thread, cleanup, push, or coordinator catch-all commit occurred.
 
-Report the Workbench run ID, completed todo IDs, verification commands/results, final review verdict, relevant SC review IDs/states, commit SHA when requested, resolved approval IDs, remaining risks, and any UI sessions intentionally left open. Evidence—not dispatch—is the completion boundary.
+Report the Workbench run ID, completed todo IDs, verification commands/results, final review verdict, relevant SC review IDs/states, worker commit SHAs, resolved approval IDs, remaining risks, and any UI sessions intentionally left open. Evidence—not dispatch—is the completion boundary.

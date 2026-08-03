@@ -31,6 +31,7 @@ import {
 	buildWaitForAgentArgs,
 	executeScJson,
 	extractLaunchIdentifiers,
+	inferTodoIdFromAgentLabel,
 	waitForAgent,
 	type ScExecutor,
 } from "./sc.ts";
@@ -44,7 +45,9 @@ import {
 	isTodoReady,
 	listTodos,
 	releaseTodo,
+	reserveTodoLaunch,
 	updateTodo,
+	withActiveTodoClaim,
 } from "./todos.ts";
 import type { RunMembership, WorkspaceScope } from "./types.ts";
 import { detectSuperconductorWorkspace, isCleanSession } from "./workspace.ts";
@@ -357,12 +360,125 @@ describe("todos", () => {
 		expect(released.claimRecoveries?.[0].releasedAssignment.sessionId).toBe("session-a");
 		expect(released.claimRecoveries?.[0].releasedBy.sessionId).toBe("coordinator-session");
 		expect(released.claimRecoveries?.[0].reason).toBe("worker session disappeared");
+		await expect(claimTodo(root, todo.id, worker, "session-a")).rejects.toThrow(
+			"cannot reclaim",
+		);
 		await claimTodo(root, todo.id, { ...worker, label: "worker-b" }, "session-b");
 		expect((await getTodo(root, todo.id)).assignedTo?.sessionId).toBe("session-b");
+	});
+
+	test("fences a recovered worker before a replacement mutates the checkout", async () => {
+		const historyRoot = await temporaryHistoryRoot();
+		const { root } = await createRun(projectRoot, "Mutation fencing", historyRoot);
+		const todo = await createTodo(root, { title: "Single writer" });
+		const worker: RunMembership = {
+			runId: "run",
+			projectPath: projectRoot,
+			root,
+			role: "worker",
+			label: "worker-a",
+			joinedAt: new Date().toISOString(),
+		};
+		const coordinator: RunMembership = {
+			...worker,
+			role: "coordinator",
+			label: "coordinator",
+		};
+		await claimTodo(root, todo.id, worker, "session-a");
+
+		let finishMutation!: () => void;
+		const mutationCanFinish = new Promise<void>((resolve) => {
+			finishMutation = resolve;
+		});
+		let mutationStarted!: () => void;
+		const mutationDidStart = new Promise<void>((resolve) => {
+			mutationStarted = resolve;
+		});
+		const mutation = withActiveTodoClaim(root, todo.id, "session-a", async () => {
+			mutationStarted();
+			await mutationCanFinish;
+			return "written";
+		});
+		await mutationDidStart;
+
+		let recoveryFinished = false;
+		const recovery = forceReleaseTodo(
+			root,
+			todo.id,
+			coordinator,
+			"coordinator-session",
+			"replace interrupted worker",
+		).then((result) => {
+			recoveryFinished = true;
+			return result;
+		});
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(recoveryFinished).toBe(false);
+
+		finishMutation();
+		expect(await mutation).toBe("written");
+		await recovery;
+		await expect(
+			withActiveTodoClaim(root, todo.id, "session-a", async () => "stale write"),
+		).rejects.toThrow("source mutation is fenced");
+
+		await claimTodo(root, todo.id, { ...worker, label: "worker-b" }, "session-b");
+		expect(
+			await withActiveTodoClaim(root, todo.id, "session-b", async () => "replacement write"),
+		).toBe("replacement write");
+	});
+
+	test("reserves one worker launch per todo and requires unique recovery labels", async () => {
+		const historyRoot = await temporaryHistoryRoot();
+		const { root } = await createRun(projectRoot, "Launch reservation", historyRoot);
+		const todo = await createTodo(root, { title: "Launch once" });
+		const coordinator: RunMembership = {
+			runId: "run",
+			projectPath: projectRoot,
+			root,
+			role: "coordinator",
+			label: "coordinator",
+			joinedAt: new Date().toISOString(),
+		};
+		const worker: RunMembership = {
+			...coordinator,
+			role: "worker",
+			label: "run-worker-TODO-001",
+		};
+
+		await reserveTodoLaunch(root, todo.id, coordinator, "coordinator-session", worker.label!);
+		await expect(
+			reserveTodoLaunch(root, todo.id, coordinator, "coordinator-session", "duplicate-worker"),
+		).rejects.toThrow("pending launch");
+		await expect(
+			claimTodo(root, todo.id, { ...worker, label: "wrong-worker" }, "wrong-session"),
+		).rejects.toThrow("reserved for");
+		await claimTodo(root, todo.id, worker, "session-a");
+		await forceReleaseTodo(
+			root,
+			todo.id,
+			coordinator,
+			"coordinator-session",
+			"worker disappeared",
+		);
+		await expect(
+			reserveTodoLaunch(root, todo.id, coordinator, "coordinator-session", worker.label!),
+		).rejects.toThrow("unique retry label");
+
+		const retryLabel = "run-worker-TODO-001-retry-2";
+		await reserveTodoLaunch(root, todo.id, coordinator, "coordinator-session", retryLabel);
+		await claimTodo(root, todo.id, { ...worker, label: retryLabel }, "session-b");
+		expect((await getTodo(root, todo.id)).assignedTo?.label).toBe(retryLabel);
 	});
 });
 
 describe("SC command adapter", () => {
+	test("infers worker todo ids from deterministic labels", () => {
+		expect(inferTodoIdFromAgentLabel("run-worker-TODO-001")).toBe("TODO-001");
+		expect(inferTodoIdFromAgentLabel("run-worker-TODO-001-retry-2")).toBe("TODO-001");
+		expect(inferTodoIdFromAgentLabel("run-scout-api")).toBeUndefined();
+	});
+
 	test("builds a safe terminal launch argv with a multiline prompt", () => {
 		const prompt = "First line\nSecond line with 'quotes' and $variables";
 		const args = buildLaunchAgentArgs(
@@ -702,7 +818,7 @@ describe("file locks", () => {
 		await mkdir(lockPath, { recursive: true });
 		await writeFile(
 			path.join(lockPath, "stale"),
-			`${JSON.stringify({ token: "stale", pid: 1, createdAt: "2020-01-01T00:00:00.000Z" })}\n`,
+			`${JSON.stringify({ token: "stale", pid: 2_147_483_647, createdAt: "2020-01-01T00:00:00.000Z" })}\n`,
 		);
 
 		await withFileLock(lockPath, async () => {

@@ -1,5 +1,8 @@
 import { StringEnum } from "@earendil-works/pi-ai";
 import {
+	createBashTool,
+	createEditTool,
+	createWriteTool,
 	DEFAULT_MAX_BYTES,
 	DEFAULT_MAX_LINES,
 	truncateHead,
@@ -31,10 +34,16 @@ import {
 	listRuns,
 	updateRun,
 } from "./runs.ts";
-import { launchAgent, waitForAgent, type ScExecutor } from "./sc.ts";
+import {
+	inferTodoIdFromAgentLabel,
+	launchAgent,
+	waitForAgent,
+	type ScExecutor,
+} from "./sc.ts";
 import {
 	appendTodo,
 	blockTodo,
+	cancelTodoLaunchReservation,
 	claimTodo,
 	completeTodo,
 	createTodo,
@@ -45,7 +54,9 @@ import {
 	isTodoReady,
 	listTodos,
 	releaseTodo,
+	reserveTodoLaunch,
 	updateTodo,
+	withActiveTodoClaim,
 } from "./todos.ts";
 import type { RunMembership, RunStatus, TodoPriority, TodoStatus } from "./types.ts";
 import { detectSuperconductorWorkspace, isCleanSession } from "./workspace.ts";
@@ -141,6 +152,47 @@ export default function workbenchExtension(pi: ExtensionAPI): void {
 	let membership: RunMembership | undefined;
 	const scExec: ScExecutor = (command, args, options) => pi.exec(command, args, options);
 
+	async function withClaimLease<T>(ctx: any, operation: () => Promise<T>): Promise<T> {
+		const active = membership;
+		if (!active?.todoId) return operation();
+		return withActiveTodoClaim(
+			active.root,
+			active.todoId,
+			ctx.sessionManager.getSessionId(),
+			operation,
+		);
+	}
+
+	const bashTool = createBashTool(process.cwd());
+	pi.registerTool({
+		...bashTool,
+		async execute(id, params, signal, onUpdate, ctx) {
+			return withClaimLease(ctx, () =>
+				createBashTool(ctx.cwd).execute(id, params, signal, onUpdate),
+			);
+		},
+	});
+
+	const editTool = createEditTool(process.cwd());
+	pi.registerTool({
+		...editTool,
+		async execute(id, params, signal, onUpdate, ctx) {
+			return withClaimLease(ctx, () =>
+				createEditTool(ctx.cwd).execute(id, params, signal, onUpdate),
+			);
+		},
+	});
+
+	const writeTool = createWriteTool(process.cwd());
+	pi.registerTool({
+		...writeTool,
+		async execute(id, params, signal, onUpdate, ctx) {
+			return withClaimLease(ctx, () =>
+				createWriteTool(ctx.cwd).execute(id, params, signal, onUpdate),
+			);
+		},
+	});
+
 	function refreshMembershipStatus(ctx: any): void {
 		ctx.ui.setStatus("workbench", workbenchStatusText(membership));
 	}
@@ -194,11 +246,12 @@ export default function workbenchExtension(pi: ExtensionAPI): void {
 		projectPath = ctx.cwd,
 	): Promise<RunMembership> {
 		const model = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
+		const resolvedTargetId = targetId ?? detectSuperconductorWorkspace()?.targetId;
 		const joined = await joinRun(projectPath, runId, {
 			sessionId: ctx.sessionManager.getSessionId(),
 			role,
 			label,
-			targetId,
+			targetId: resolvedTargetId,
 			todoId,
 			model,
 			reasoning: ctx.thinkingLevel,
@@ -257,23 +310,40 @@ export default function workbenchExtension(pi: ExtensionAPI): void {
 		name: "launch_agent",
 		label: "Launch Agent",
 		description:
-			"Launch one labeled Pi terminal in the current worktree through SC. Requires active Workbench membership and an explicit full prompt. Optional model and reasoning values must already be verified against SC capabilities. Model-facing output is limited to 50 KB or 2,000 lines; complete structured data remains in tool details.",
+			"Launch one labeled Pi terminal in the current worktree through SC. Worker launches reserve their Workbench todo before dispatch, preventing duplicate workers. Requires active Workbench membership and an explicit full prompt. Optional model and reasoning values must already be verified against SC capabilities. Model-facing output is limited to 50 KB or 2,000 lines; complete structured data remains in tool details.",
 		promptSnippet: "Launch one labeled Pi terminal for a coordinated Workbench task",
 		promptGuidelines: [
 			"Use launch_agent only after joining or creating the active Workbench run, with an explicit deterministic label and complete role prompt.",
+			"Pass launch_agent todoId for every worker launch; labels containing TODO-NNN are also linked automatically. A recovered worker retry must use a new label.",
+			"Every launch_agent worker prompt must require the worker to read the commit skill, create one focused verified commit, record its SHA, and not push.",
 			"Use launch_agent model and reasoning only when those values have been verified against live SC capabilities.",
 			"Treat launch_agent success as dispatch only; verify the assigned Workbench todo and artifact separately after waiting.",
 		],
 		parameters: Type.Object({
 			label: Type.String({ description: "Explicit SC label for the launched agent" }),
 			prompt: Type.String({ description: "Complete prompt sent to the launched Pi terminal as one argv value" }),
+			todoId: Type.Optional(Type.String({ description: "Workbench todo reserved for this worker launch" })),
 			model: Type.Optional(Type.String({ description: "Verified Pi model ID" })),
 			reasoning: Type.Optional(Type.String({ description: "Verified Pi reasoning level" })),
 		}),
 		async execute(_id, params, signal, _update, ctx) {
-			requireMembership();
-			const launched = await launchAgent(scExec, params, ctx.cwd, signal);
-			return launchAgentToolResult(launched, ScResultLimits);
+			const active = requireMembership();
+			const todoId = params.todoId ?? inferTodoIdFromAgentLabel(params.label);
+			const sessionId = ctx.sessionManager.getSessionId();
+			if (todoId) {
+				await reserveTodoLaunch(active.root, todoId, active, sessionId, params.label);
+			}
+			try {
+				const launched = await launchAgent(scExec, params, ctx.cwd, signal);
+				return launchAgentToolResult(launched, ScResultLimits);
+			} catch (error) {
+				if (todoId) {
+					await cancelTodoLaunchReservation(active.root, todoId, sessionId, params.label).catch(
+						() => undefined,
+					);
+				}
+				throw error;
+			}
 		},
 		renderCall(args, theme) {
 			return renderAgentCall("launch", args as Record<string, unknown>, theme);
@@ -444,16 +514,18 @@ export default function workbenchExtension(pi: ExtensionAPI): void {
 			content: Type.String({ description: "Complete file content, or content to append" }),
 			mode: Type.Optional(StringEnum(["write", "append"] as const, { default: "write" })),
 		}),
-		async execute(_id, params, _signal, _update, _ctx) {
+		async execute(_id, params, _signal, _update, ctx) {
 			const active = requireMembership();
-			const target = resolveArtifactPath(active.root, params.path);
-			const artifact = await withFileMutationQueue(target, () =>
-				writeArtifact(active.root, params.path, params.content, params.mode ?? "write"),
-			);
-			return {
-				content: [{ type: "text", text: `Wrote ${artifact.path} (${artifact.bytes} bytes)` }],
-				details: { artifact, runId: active.runId, root: active.root },
-			};
+			return withClaimLease(ctx, async () => {
+				const target = resolveArtifactPath(active.root, params.path);
+				const artifact = await withFileMutationQueue(target, () =>
+					writeArtifact(active.root, params.path, params.content, params.mode ?? "write"),
+				);
+				return {
+					content: [{ type: "text", text: `Wrote ${artifact.path} (${artifact.bytes} bytes)` }],
+					details: { artifact, runId: active.runId, root: active.root },
+				};
+			});
 		},
 		renderCall(args, theme) {
 			return renderToolCall("write_artifact", `${args.mode ?? "write"} ${args.path}`, theme);
@@ -633,7 +705,10 @@ export default function workbenchExtension(pi: ExtensionAPI): void {
 				if (active.todoId === params.id) await updateMembershipTodo(ctx, undefined);
 			} else if (params.action === "block") {
 				if (!params.reason) throw new Error("reason is required for block");
-				todo = await withFileMutationQueue(target, () => blockTodo(active.root, params.id!, params.reason!));
+				todo = await withFileMutationQueue(target, () =>
+					blockTodo(active.root, params.id!, ctx.sessionManager.getSessionId(), params.reason!),
+				);
+				if (active.todoId === params.id) await updateMembershipTodo(ctx, undefined);
 			} else if (params.action === "complete") {
 				todo = await withFileMutationQueue(target, () =>
 					completeTodo(active.root, params.id!, ctx.sessionManager.getSessionId(), {
@@ -732,7 +807,10 @@ export default function workbenchExtension(pi: ExtensionAPI): void {
 				if (active.todoId === todo.id) await updateMembershipTodo(ctx, undefined);
 			} else if (action === "Block") {
 				const reason = await ctx.ui.input("Why is this blocked?", "missing input or dependency");
-				if (reason) await blockTodo(active.root, todo.id, reason);
+				if (reason) {
+					await blockTodo(active.root, todo.id, sessionId, reason);
+					if (active.todoId === todo.id) await updateMembershipTodo(ctx, undefined);
+				}
 			} else if (action === "Release") {
 				await releaseTodo(active.root, todo.id, sessionId);
 				if (active.todoId === todo.id) await updateMembershipTodo(ctx, undefined);

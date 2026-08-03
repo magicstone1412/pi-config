@@ -69,6 +69,29 @@ export interface TodoAssignment {
 	claimedAt: string;
 }
 
+export interface TodoLaunchReservation {
+	label: string;
+	reservedBy: {
+		sessionId: string;
+		role: string;
+		label?: string;
+		targetId?: string;
+	};
+	reservedAt: string;
+}
+
+export interface TodoLaunchRecovery {
+	releasedReservation: TodoLaunchReservation;
+	releasedBy: {
+		sessionId: string;
+		role: string;
+		label?: string;
+		targetId?: string;
+	};
+	reason: string;
+	releasedAt: string;
+}
+
 export interface TodoClaimRecovery {
 	releasedAssignment: TodoAssignment;
 	releasedBy: {
@@ -90,7 +113,9 @@ export interface TodoMetadata {
 	tags: string[];
 	dependsOn: string[];
 	assignedTo?: TodoAssignment;
+	launchReservation?: TodoLaunchReservation;
 	claimRecoveries?: TodoClaimRecovery[];
+	launchRecoveries?: TodoLaunchRecovery[];
 	artifactRefs: string[];
 	verification?: string;
 	blockedReason?: string;

@@ -14,6 +14,7 @@ Preserve these workflow guarantees:
 - Then begin SC execution automatically without asking for another confirmation.
 - Treat launch/send as dispatch only: wait, read, and verify durable artifacts/todo state before advancing.
 - Run dependent workers and the final reviewer sequentially; use teams only for genuinely independent fan-out whose provider/model constraints fit.
+- Require each successful source-writing worker to create one focused verified commit, record its SHA, and never push.
 - The final reviewer must read the Workbench artifacts and fully reconcile the run through SC review checklist, diff, comment, reply/status, and approval/finding capabilities; artifact-only review is not completion for `/plan`.
 
 Planning request:

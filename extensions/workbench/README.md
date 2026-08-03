@@ -47,10 +47,12 @@ Both native tools require active Workbench membership. They are focused executio
 ### `launch_agent`
 
 ```text
-launch_agent({ label, prompt, model?, reasoning? })
+launch_agent({ label, prompt, todoId?, model?, reasoning? })
 ```
 
 Launches one labeled Pi terminal with `sc layout run tabs --provider pi --ui terminal --active keep` in Pi's current working directory. The prompt is passed directly as one argv value, including when multiline; no shell interpolation or temporary prompt file is used. Optional model and reasoning values must be verified by the coordinator before the call.
+
+Worker launches pass `todoId` (or use the deterministic `TODO-NNN` label segment). Before SC dispatch, Workbench atomically reserves that todo for the launch label. A second launch for the same todo is rejected while the reservation or worker claim exists. The matching worker consumes the reservation when it claims the todo; other labels cannot claim it. Force-recovery permits a replacement only under a new retry label, preserving an unambiguous attempt history.
 
 The result preserves SC's raw JSON response and exposes only identifiers SC actually returned: label, selector, stable target ID, session ID, and conversation ID. Model-facing JSON is capped at Pi's 50 KB / 2,000-line custom-tool limits, with identifiers kept in the visible prefix. If truncated, the result marks that complete structured launch data remains in tool details. A successful call means dispatch was accepted, not that the agent completed its Workbench assignment.
 
@@ -67,13 +69,13 @@ Nonzero SC exits, malformed JSON, timeouts, and structured `target_error` respon
 A coordinator's supported sequential path is therefore:
 
 ```text
-launch_agent({ label: "RUN_ID-worker-TODO-001", prompt: "<complete role prompt>" })
+launch_agent({ label: "RUN_ID-worker-TODO-001", todoId: "TODO-001", prompt: "<complete role prompt>" })
 wait_for_agent({ target: "label:RUN_ID-worker-TODO-001", timeoutMs: 120000, last: 20 })
 todo({ action: "get", id: "TODO-001" })
 read_artifact({ path: "artifacts/RUN_ID-worker-TODO-001/result.md" })
 ```
 
-The first call confirms dispatch only, and the second performs SC wait + read only. The coordinator advances only after the todo and artifact provide the required durable acceptance evidence.
+The first call confirms dispatch only, and the second performs SC wait + read only. The coordinator advances only after the todo and artifact provide the required durable acceptance evidence and the worker's recorded focused commit SHA is verified.
 
 ## Durable Workbench tools
 
@@ -85,7 +87,9 @@ The first call confirms dispatch only, and the second performs SC wait + read on
 
 Todo files contain JSON metadata followed by a Markdown body. Claims are session-aware, dependencies must be complete before claim and completion, and generic updates cannot mark work in progress or done. Completion is allowed only for the current assignee and requires non-empty verification plus at least one existing, safe artifact file.
 
-A coordinator may recover a claim left by a disappeared worker only with the explicit `force_release` action and a non-empty reason. Each force release records the previous assignment, coordinator identity, reason, and timestamp in the todo. Workers must never force-release claims.
+Claimed workers hold a fenced single-writer lease around `bash`, `edit`, `write`, and `write_artifact`. A coordinator cannot force-release the claim during one of those operations. Once force-released, the old session cannot reclaim the todo and all later guarded mutations fail even if its Pi process continues running. This couples durable ownership to filesystem mutation instead of trusting SC idle/stop state.
+
+A coordinator may recover a claim or an unclaimed launch reservation left by a disappeared worker only with the explicit `force_release` action and a non-empty reason. Each force release records the previous assignment/reservation, coordinator identity, reason, and timestamp in the todo. Workers must never force-release claims.
 
 Artifact paths reject reserved root names regardless of case and reject existing symbolic-link components. Artifact references are normalized run-relative paths. Writes use token-owned cross-process lock files plus atomic replacement; stale takeover and cleanup remove a lock only while its ownership token still matches.
 

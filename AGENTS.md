@@ -167,7 +167,7 @@ In a Superconductor-managed Pi terminal, update the app tab title with `sc tab t
 
 A clean Superconductor-managed Pi session automatically starts in its worktree's ambient Workbench workspace run. Inspect that membership with `run_workspace({ action: "current" })`; do not create or join a run merely to initialize Workbench. For a coordinated task workflow, the coordinator creates one dedicated Workbench run with `run_workspace`, writes `plan.md`, and creates durable todos. Every launched Pi role receives the task run ID, role, label, and optional todo ID, and joins it first with `run_workspace({ action: "join", ... })`. Use Workbench artifacts and todo state as the durable record; SC labels and coordination-state are runtime-only controls.
 
-Read-only scouts may run concurrently. Source-writing workers run sequentially in a shared worktree unless the human explicitly requests managed worktrees. Dispatch is not completion: wait/read the launched session and verify its Workbench artifact and todo state before advancing.
+Read-only scouts may run concurrently. Source-writing workers run sequentially in a shared worktree unless the human explicitly requests managed worktrees. Each successful source-writing worker reads the commit skill, creates one focused commit for its todo without pushing, and records the SHA in its result artifact before completion. Dispatch is not completion: wait/read the launched session and verify its Workbench artifact, commit, and todo state before advancing.
 
 #### When Not to Delegate
 

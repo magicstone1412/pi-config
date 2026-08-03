@@ -40,6 +40,7 @@ Use `dependsOn: []` when there are no dependencies. Todo IDs are assigned by Wor
 - [Architectural constraints]
 - [Libraries/patterns to use]
 - [Explicit anti-patterns to avoid]
+- Read and follow the commit skill; commit only this todo's verified changes and do not push.
 
 ## Files
 - `path/to/file` — [what changes]
@@ -55,6 +56,7 @@ Use `dependsOn: []` when there are no dependencies. Todo IDs are assigned by Wor
 ## Acceptance Criteria
 - [ ] [Specific, verifiable criterion]
 - [ ] `<command>` passes
+- [ ] One focused commit exists and its SHA is recorded in the result artifact
 ```
 
 ## Rules
@@ -65,6 +67,6 @@ Use `dependsOn: []` when there are no dependencies. Todo IDs are assigned by Wor
 - Keep one todo to one focused worker session. Source-writing todos are sequential in one shared worktree unless the human explicitly authorizes managed worktrees.
 - Use dependencies for ordering; workers cannot claim an item until its dependencies complete.
 - Make acceptance criteria objective, with commands, file checks, API results, or exact behavior.
-- Require every worker to join the run, claim exactly one todo, write `artifacts/<label>/result.md`, record verification, then complete or block it.
+- Require every source-writing worker to join the run, claim exactly one todo, verify it, read the commit skill, create one focused commit without pushing, record its SHA in `artifacts/<label>/result.md`, then complete or block it. Never tell a worker not to commit.
 
 Before creating each todo, verify it is independently implementable, references `plan.md`, states dependencies, includes constraints and a source reference or sketch, and has objective acceptance criteria.

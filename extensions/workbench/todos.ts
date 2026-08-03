@@ -22,6 +22,11 @@ export function getTodoPath(runRoot: string, todoId: string): string {
 	return resolveInside(path.join(runRoot, "todos"), `${todoId}.md`);
 }
 
+export function getTodoWriterLockPath(runRoot: string, todoId: string): string {
+	assertTodoId(todoId);
+	return path.join(runRoot, ".locks", `${todoId}.writer.lock`);
+}
+
 function parseJsonObjectEnd(content: string): number {
 	let depth = 0;
 	let inString = false;
@@ -244,6 +249,90 @@ function assignmentFor(membership: RunMembership, sessionId: string): TodoAssign
 	};
 }
 
+function recoveryActor(membership: RunMembership, sessionId: string) {
+	return {
+		sessionId,
+		role: membership.role,
+		label: membership.label,
+		targetId: membership.targetId,
+	};
+}
+
+export async function reserveTodoLaunch(
+	runRoot: string,
+	todoId: string,
+	membership: RunMembership,
+	sessionId: string,
+	label: string,
+): Promise<TodoRecord> {
+	if (membership.role !== "coordinator") {
+		throw new Error("Only a coordinator may reserve a todo launch");
+	}
+	if (!label.trim()) throw new Error("Launch label is required");
+	return mutateTodo(runRoot, todoId, async (todo) => {
+		if (todo.status !== "open") {
+			throw new Error(`Cannot launch ${todo.id} because it is ${todo.status}`);
+		}
+		if (todo.assignedTo) {
+			throw new Error(`${todo.id} is assigned to ${todo.assignedTo.label ?? todo.assignedTo.sessionId}`);
+		}
+		if (todo.launchReservation) {
+			throw new Error(`${todo.id} already has a pending launch for ${todo.launchReservation.label}`);
+		}
+		const usedLabels = new Set([
+			...(todo.claimRecoveries ?? []).map((recovery) => recovery.releasedAssignment.label),
+			...(todo.launchRecoveries ?? []).map((recovery) => recovery.releasedReservation.label),
+		].filter((usedLabel): usedLabel is string => Boolean(usedLabel)));
+		if (usedLabels.has(label)) {
+			throw new Error(`Launch label ${label} was already used for ${todo.id}; use a unique retry label`);
+		}
+		const todos = await listTodos(runRoot);
+		const byId = new Map(todos.map((item) => [item.id, item]));
+		const incomplete = todo.dependsOn.filter((dependency) => byId.get(dependency)?.status !== "done");
+		if (incomplete.length > 0) {
+			throw new Error(`${todo.id} has incomplete dependencies: ${incomplete.join(", ")}`);
+		}
+		todo.launchReservation = {
+			label: label.trim(),
+			reservedBy: recoveryActor(membership, sessionId),
+			reservedAt: new Date().toISOString(),
+		};
+	});
+}
+
+export async function cancelTodoLaunchReservation(
+	runRoot: string,
+	todoId: string,
+	sessionId: string,
+	label: string,
+): Promise<TodoRecord> {
+	return mutateTodo(runRoot, todoId, (todo) => {
+		const reservation = todo.launchReservation;
+		if (!reservation) return;
+		if (reservation.label !== label || reservation.reservedBy.sessionId !== sessionId) {
+			throw new Error(`${todo.id} launch reservation belongs to another coordinator or label`);
+		}
+		todo.launchReservation = undefined;
+	});
+}
+
+export async function withActiveTodoClaim<T>(
+	runRoot: string,
+	todoId: string,
+	sessionId: string,
+	operation: () => Promise<T>,
+): Promise<T> {
+	return withFileLock(getTodoWriterLockPath(runRoot, todoId), async () => {
+		const todo = await getTodo(runRoot, todoId);
+		if (todo.status !== "in_progress" || todo.assignedTo?.sessionId !== sessionId) {
+			throw new Error(
+				`${todo.id} claim is no longer owned by this session; source mutation is fenced`,
+			);
+		}
+		return operation();
+	});
+}
+
 export async function claimTodo(
 	runRoot: string,
 	todoId: string,
@@ -259,6 +348,18 @@ export async function claimTodo(
 				`${todo.id} is assigned to ${todo.assignedTo.label ?? todo.assignedTo.sessionId}`,
 			);
 		}
+		if (
+			(todo.claimRecoveries ?? []).some(
+				(recovery) => recovery.releasedAssignment.sessionId === sessionId,
+			)
+		) {
+			throw new Error(`${todo.id} was force-released from this session; it cannot reclaim the todo`);
+		}
+		if (todo.launchReservation && todo.launchReservation.label !== membership.label) {
+			throw new Error(
+				`${todo.id} launch is reserved for ${todo.launchReservation.label}`,
+			);
+		}
 		const todos = await listTodos(runRoot);
 		const byId = new Map(todos.map((item) => [item.id, item]));
 		const incomplete = todo.dependsOn.filter((dependency) => byId.get(dependency)?.status !== "done");
@@ -268,6 +369,7 @@ export async function claimTodo(
 		todo.status = "in_progress";
 		todo.blockedReason = undefined;
 		todo.assignedTo = assignmentFor(membership, sessionId);
+		todo.launchReservation = undefined;
 	});
 }
 
@@ -293,40 +395,58 @@ export async function forceReleaseTodo(
 	reason: string,
 ): Promise<TodoRecord> {
 	if (membership.role !== "coordinator") {
-		throw new Error("Only a coordinator may force-release a todo claim");
+		throw new Error("Only a coordinator may force-release a todo claim or launch");
 	}
 	if (!reason.trim()) throw new Error("Force-release reason is required");
-	return mutateTodo(runRoot, todoId, (todo) => {
-		if (!todo.assignedTo) throw new Error(`${todo.id} has no claim to force-release`);
-		const releasedAt = new Date().toISOString();
-		todo.claimRecoveries = [
-			...(todo.claimRecoveries ?? []),
-			{
-				releasedAssignment: todo.assignedTo,
-				releasedBy: {
-					sessionId,
-					role: membership.role,
-					label: membership.label,
-					targetId: membership.targetId,
-				},
-				reason: reason.trim(),
-				releasedAt,
-			},
-		];
-		todo.assignedTo = undefined;
-		if (todo.status === "in_progress") todo.status = "open";
-	});
+	return withFileLock(getTodoWriterLockPath(runRoot, todoId), () =>
+		mutateTodo(runRoot, todoId, (todo) => {
+			if (!todo.assignedTo && !todo.launchReservation) {
+				throw new Error(`${todo.id} has no claim or launch reservation to force-release`);
+			}
+			const releasedAt = new Date().toISOString();
+			const releasedBy = recoveryActor(membership, sessionId);
+			if (todo.assignedTo) {
+				todo.claimRecoveries = [
+					...(todo.claimRecoveries ?? []),
+					{
+						releasedAssignment: todo.assignedTo,
+						releasedBy,
+						reason: reason.trim(),
+						releasedAt,
+					},
+				];
+				todo.assignedTo = undefined;
+			} else if (todo.launchReservation) {
+				todo.launchRecoveries = [
+					...(todo.launchRecoveries ?? []),
+					{
+						releasedReservation: todo.launchReservation,
+						releasedBy,
+						reason: reason.trim(),
+						releasedAt,
+					},
+				];
+				todo.launchReservation = undefined;
+			}
+			if (todo.status === "in_progress") todo.status = "open";
+		}),
+	);
 }
 
 export async function blockTodo(
 	runRoot: string,
 	todoId: string,
+	sessionId: string,
 	reason: string,
 ): Promise<TodoRecord> {
 	if (!reason.trim()) throw new Error("Block reason is required");
 	return mutateTodo(runRoot, todoId, (todo) => {
+		if (todo.status !== "in_progress" || todo.assignedTo?.sessionId !== sessionId) {
+			throw new Error(`${todo.id} must be claimed by this session before it can be blocked`);
+		}
 		todo.status = "blocked";
 		todo.blockedReason = reason.trim();
+		todo.assignedTo = undefined;
 	});
 }
 

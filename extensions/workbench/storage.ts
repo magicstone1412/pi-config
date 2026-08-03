@@ -175,6 +175,15 @@ async function readLockOwner(lockPath: string): Promise<LockOwner | undefined> {
 	}
 }
 
+function isProcessAlive(pid: number): boolean {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch (error) {
+		return (error as NodeJS.ErrnoException).code === "EPERM";
+	}
+}
+
 async function removeLockIfOwned(lockPath: string, token: string): Promise<boolean> {
 	try {
 		await rm(path.join(lockPath, token));
@@ -221,6 +230,7 @@ export async function withFileLock<T>(lockPath: string, operation: () => Promise
 					observedOwner &&
 					Number.isFinite(observedCreatedAt) &&
 					Date.now() - observedCreatedAt > LOCK_STALE_MS &&
+					!isProcessAlive(observedOwner.pid) &&
 					(await removeLockIfOwned(lockPath, observedOwner.token))
 				) {
 					continue;

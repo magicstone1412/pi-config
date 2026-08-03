@@ -18,6 +18,7 @@ export type ScExecutor = (
 export interface LaunchAgentInput {
 	label: string;
 	prompt: string;
+	todoId?: string;
 	model?: string;
 	reasoning?: string;
 }
@@ -44,6 +45,10 @@ export interface LaunchAgentResponse {
 export interface WaitForAgentResponse {
 	wait: unknown;
 	read: unknown;
+}
+
+export function inferTodoIdFromAgentLabel(label: string): string | undefined {
+	return label.match(/(?:^|[^A-Za-z0-9])(TODO-\d{3,})(?:$|[^A-Za-z0-9])/i)?.[1]?.toUpperCase();
 }
 
 export function buildLaunchAgentArgs(input: LaunchAgentInput, worktree: string): string[] {
