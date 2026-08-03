@@ -54,7 +54,9 @@ Launches one labeled Pi terminal with `sc layout run tabs --provider pi --ui ter
 
 Worker launches pass `todoId` (or use the deterministic `TODO-NNN` label segment). Before SC dispatch, Workbench atomically reserves that todo for the launch label. A second launch for the same todo is rejected while the reservation or worker claim exists. The matching worker consumes the reservation when it claims the todo; other labels cannot claim it. Force-recovery permits a replacement only under a new retry label, preserving an unambiguous attempt history.
 
-The result preserves SC's raw JSON response and exposes only identifiers SC actually returned: label, selector, stable target ID, session ID, and conversation ID. Model-facing JSON is capped at Pi's 50 KB / 2,000-line custom-tool limits, with identifiers kept in the visible prefix. If truncated, the result marks that complete structured launch data remains in tool details. A successful call means dispatch was accepted, not that the agent completed its Workbench assignment.
+The launch tool returns immediately with a compact green `started` result. An extension-owned background watcher waits in internal 120-second windows, updates the live panel, and reads the target when it becomes idle. Completion or failure is delivered later as a separate themed message block and automatically starts the coordinator's next turn. The coordinator does not call another tool, poll, or inspect the child session while monitoring is healthy.
+
+The background result includes bounded runtime wait/read data for the model. A successful runtime result still means only that the delegated turn ended; the automatically awakened coordinator must verify the Workbench todo, artifact, and focused commit before advancing.
 
 ### `wait_for_agent`
 
@@ -62,28 +64,26 @@ The result preserves SC's raw JSON response and exposes only identifiers SC actu
 wait_for_agent({ target, last? })
 ```
 
-Waits for the exact target to become idle and then reads that same target. It checks for idle in internal 120-second windows, not against an overall deadline: ordinary interval expiry is retried inside the same tool call so the coordinator does not issue repeated waits. `last` limits transcript entries read. The pending tool result updates every second with elapsed time and shows the internal check count after an interval expires. The call remains active until completion, cancellation, delegated-agent failure, or monitoring failure.
+This is an explicit recovery tool, not part of the normal launch lifecycle. Use it only after automatic monitoring failed or was interrupted and the user chose to retry. If the launch-owned watcher is still active, the tool returns immediately and tells the coordinator to await automatic delivery instead of creating a second wait row.
 
-Failures are classified before reaching the coordinator. A structured target/provider error becomes a delegated-agent failure. Control-plane connection errors, unavailable APIs/WebSockets, malformed responses, and transcript-read failures become monitoring failures and explicitly state that the delegated agent may still be running. These failures instruct the coordinator to stop and ask the user whether to inspect, retry, or stop rather than relaunch automatically. Cancellation is forwarded to the active wait/read process.
-
-Model-facing wait/read JSON is capped at Pi's 50 KB / 2,000-line custom-tool limits while complete structured data remains in tool details. A truncation marker instructs the coordinator to call `wait_for_agent` again with a smaller `last` value for a bounded transcript. Successful wait/read output remains runtime evidence only: callers must separately verify the Workbench todo and artifact before advancing.
+A structured target/provider error becomes a delegated-agent failure. Control-plane connection errors, unavailable APIs/WebSockets, malformed responses, and transcript-read failures become monitoring failures and explicitly state that the delegated agent may still be running. These failures arrive as a separate result block and instruct the coordinator to stop and ask the user whether to inspect, retry, or stop rather than relaunch automatically.
 
 A coordinator's supported sequential path is therefore:
 
 ```text
 launch_agent({ label: "RUN_ID-worker-TODO-001", todoId: "TODO-001", prompt: "<complete role prompt>" })
-wait_for_agent({ target: "label:RUN_ID-worker-TODO-001", last: 20 })
+# Background watcher delivers a new completion/failure message and wakes the coordinator.
 todo({ action: "get", id: "TODO-001" })
 read_artifact({ path: "artifacts/RUN_ID-worker-TODO-001/result.md" })
 ```
 
-The first call confirms dispatch only, and the second performs SC wait + read only. The coordinator advances only after the todo and artifact provide the required durable acceptance evidence and the worker's recorded focused commit SHA is verified.
+The coordinator advances only after the todo and artifact provide the required durable acceptance evidence and the worker's recorded focused commit SHA is verified.
 
 ## Live agent panel
 
 Workbench renders launched and monitored agents in a bordered panel above the editor. Each row shows a compact worker/scout/reviewer identity and elapsed time. Once the child session records model activity, the right side shows real assistant-turn count and accumulated provider cost (including nested tool, compaction, and branch-summary usage) instead of a synthetic check counter. Starting, delegated failure, and monitoring failure states remain explicit.
 
-The panel incrementally reads only newly appended JSONL session entries once per second, supports multiple tracked agents, preserves failed rows while the user decides how to proceed, removes completed agents, and clears when no agents remain. Rendering is width-bounded for narrow terminals and uses the active Pi theme.
+The panel incrementally reads only newly appended JSONL session entries once per second. When monitoring an already-running target after reload, Workbench resolves its Pi session path from one bounded runtime read so metrics do not depend on the original launch response remaining in memory. The panel supports multiple tracked agents, preserves failed rows while the user decides how to proceed, removes completed agents, and clears when no agents remain. Rendering is width-bounded for narrow terminals and uses the active Pi theme.
 
 ## Durable Workbench tools
 

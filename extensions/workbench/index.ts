@@ -5,16 +5,18 @@ import {
 	createWriteTool,
 	DEFAULT_MAX_BYTES,
 	DEFAULT_MAX_LINES,
+	keyHint,
 	truncateHead,
 	type ExtensionAPI,
 	withFileMutationQueue,
 } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
+import { Box, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import path from "node:path";
 import { listArtifacts, readArtifact, resolveArtifactPath, writeArtifact } from "./artifacts.ts";
 import {
 	agentName,
+	agentPanelName,
 	launchAgentResultText,
 	launchAgentToolResult,
 	renderAgentPanelLines,
@@ -41,6 +43,7 @@ import {
 	AgentWaitError,
 	inferTodoIdFromAgentLabel,
 	launchAgent,
+	resolveAgentSessionFile,
 	waitForAgent,
 	type ScExecutor,
 } from "./sc.ts";
@@ -116,7 +119,7 @@ function renderAgentCall(
 	theme: any,
 ): Text {
 	const input = args ?? {};
-	const name = agentName(action === "launch" ? input.label : input.target);
+	const name = agentPanelName(agentName(action === "launch" ? input.label : input.target));
 	let text =
 		theme.fg("toolTitle", theme.bold(name)) +
 		theme.fg("muted", action === "launch" ? " — launch" : " — wait");
@@ -158,8 +161,10 @@ export default function workbenchExtension(pi: ExtensionAPI): void {
 	interface TrackedAgent extends AgentPanelItem {
 		aliases: Set<string>;
 		metricsReader?: SessionMetricsReader;
+		resolvingSession?: boolean;
 	}
 	const trackedAgents = new Map<string, TrackedAgent>();
+	const agentWatchers = new Map<TrackedAgent, AbortController>();
 	let agentPanelCtx: any;
 	let agentPanelTimer: ReturnType<typeof setInterval> | undefined;
 	let refreshingAgentMetrics = false;
@@ -258,6 +263,103 @@ export default function workbenchExtension(pi: ExtensionAPI): void {
 		for (const [key, candidate] of trackedAgents) {
 			if (candidate === agent) trackedAgents.delete(key);
 		}
+	}
+
+	function agentElapsedText(milliseconds: number): string {
+		const totalSeconds = Math.max(0, Math.floor(milliseconds / 1000));
+		const minutes = Math.floor(totalSeconds / 60);
+		const seconds = String(totalSeconds % 60).padStart(2, "0");
+		return `${minutes}:${seconds}`;
+	}
+
+	function attachAgentSessionMetrics(
+		agent: TrackedAgent,
+		target: string,
+		cwd: string,
+		signal?: AbortSignal,
+	): void {
+		if (agent.metricsReader || agent.resolvingSession) return;
+		agent.resolvingSession = true;
+		void resolveAgentSessionFile(scExec, { target }, cwd, signal)
+			.then((sessionFile) => {
+				if (!sessionFile) return;
+				agent.metricsReader = new SessionMetricsReader(sessionFile);
+				void refreshAgentMetrics();
+			})
+			.catch(() => undefined)
+			.finally(() => {
+				agent.resolvingSession = false;
+			});
+	}
+
+	function startAgentWatcher(agent: TrackedAgent, target: string, cwd: string): void {
+		if (agentWatchers.has(agent)) return;
+		const controller = new AbortController();
+		agentWatchers.set(agent, controller);
+		attachAgentSessionMetrics(agent, target, cwd, controller.signal);
+		void waitForAgent(
+			scExec,
+			{ target, last: 20 },
+			cwd,
+			controller.signal,
+			() => {
+				agent.status = "running";
+				updateAgentPanel();
+			},
+		).then((result) => {
+			removeTrackedAgent(agent);
+			updateAgentPanel();
+			const name = agentPanelName(agent.target);
+			const elapsed = agentElapsedText(result.elapsedMs);
+			const runtimeResult = waitForAgentToolResult(target, result, ScResultLimits);
+			const resultText = runtimeResult.content[0]?.text ?? "Agent completed.";
+			pi.sendMessage(
+				{
+					customType: "workbench_agent_result",
+					content: `Delegated agent "${name}" completed after ${elapsed}.\n\n${resultText}\n\nInspect the assigned Workbench todo and result artifact before advancing.`,
+					display: true,
+					details: {
+						status: "completed",
+						name,
+						target,
+						elapsedMs: result.elapsedMs,
+						sessionFile: agent.metricsReader?.path,
+					},
+				},
+				{ triggerTurn: true, deliverAs: "steer" },
+			);
+		}).catch((error) => {
+			if (controller.signal.aborted || (error instanceof AgentWaitError && error.kind === "cancelled")) {
+				return;
+			}
+			const failure = error instanceof AgentWaitError ? error : new AgentWaitError(
+				"monitoring_unavailable",
+				error instanceof Error ? error.message : String(error),
+				true,
+			);
+			agent.status = failure.kind === "agent_failed" ? "failed" : "monitoring_failed";
+			updateAgentPanel();
+			const name = agentPanelName(agent.target);
+			pi.sendMessage(
+				{
+					customType: "workbench_agent_result",
+					content: failure.message,
+					display: true,
+					details: {
+						status: "failed",
+						name,
+						target,
+						elapsedMs: Date.now() - agent.startedAt,
+						error: failure.message,
+						agentMayStillBeRunning: failure.agentMayStillBeRunning,
+						sessionFile: agent.metricsReader?.path,
+					},
+				},
+				{ triggerTurn: true, deliverAs: "steer" },
+			);
+		}).finally(() => {
+			agentWatchers.delete(agent);
+		});
 	}
 
 	async function withClaimLease<T>(ctx: any, operation: () => Promise<T>): Promise<T> {
@@ -408,6 +510,8 @@ export default function workbenchExtension(pi: ExtensionAPI): void {
 	pi.on("session_shutdown", async (_event, ctx) => {
 		if (agentPanelTimer) clearInterval(agentPanelTimer);
 		agentPanelTimer = undefined;
+		for (const controller of agentWatchers.values()) controller.abort();
+		agentWatchers.clear();
 		trackedAgents.clear();
 		ctx.ui.setWidget("workbench-agents", undefined);
 		agentPanelCtx = undefined;
@@ -423,18 +527,55 @@ export default function workbenchExtension(pi: ExtensionAPI): void {
 		};
 	});
 
+	pi.registerMessageRenderer("workbench_agent_result", (message, options, theme) => {
+		const details = message.details as Record<string, unknown> | undefined;
+		if (!details) return undefined;
+		const failed = details.status === "failed";
+		const name = typeof details.name === "string" ? details.name : "Agent";
+		const elapsedMs = typeof details.elapsedMs === "number" ? details.elapsedMs : 0;
+		const header = `${theme.fg(failed ? "error" : "success", failed ? "✗" : "✓")} ` +
+			theme.fg("toolTitle", theme.bold(name)) +
+			theme.fg("dim", ` — ${failed ? "failed" : "completed"} (${agentElapsedText(elapsedMs)})`);
+		const lines = [header];
+		if (options.expanded) {
+			const content = typeof message.content === "string" ? message.content : "";
+			if (content) lines.push("", content);
+			if (typeof details.sessionFile === "string") {
+				lines.push("", theme.fg("dim", `Session: ${details.sessionFile}`));
+			}
+		} else {
+			lines.push(
+				theme.fg(
+					"muted",
+					failed
+						? "Monitoring stopped; the coordinator needs your decision."
+						: "Runtime result delivered; verifying durable Workbench evidence.",
+				),
+				theme.fg("muted", keyHint("app.tools.expand", "to expand")),
+			);
+		}
+		const box = new Box(
+			1,
+			1,
+			(text: string) => theme.bg(failed ? "toolErrorBg" : "toolSuccessBg", text),
+		);
+		box.addChild(new Text(lines.join("\n"), 0, 0));
+		return box;
+	});
+
 	pi.registerTool({
 		name: "launch_agent",
 		label: "Launch Agent",
 		description:
-			"Launch one labeled Pi terminal in the current worktree through SC. Worker launches reserve their Workbench todo before dispatch, preventing duplicate workers. Requires active Workbench membership and an explicit full prompt. Optional model and reasoning values must already be verified against SC capabilities. Model-facing output is limited to 50 KB or 2,000 lines; complete structured data remains in tool details.",
-		promptSnippet: "Launch one labeled Pi terminal for a coordinated Workbench task",
+			"Launch one labeled Pi terminal in the current worktree and monitor it asynchronously. The tool returns immediately after dispatch; live progress stays in the Agents panel and completion or failure is delivered automatically as a new message that starts the next coordinator turn. Worker launches reserve their Workbench todo before dispatch, preventing duplicate workers. Requires active Workbench membership and an explicit full prompt. Optional model and reasoning values must already be verified against SC capabilities.",
+		promptSnippet: "Start one delegated Pi agent; progress and completion are delivered automatically",
 		promptGuidelines: [
 			"Use launch_agent only after joining or creating the active Workbench run, with an explicit deterministic label and complete role prompt.",
 			"Pass launch_agent todoId for every worker launch; labels containing TODO-NNN are also linked automatically. A recovered worker retry must use a new label.",
 			"Every launch_agent worker prompt must require the worker to read the commit skill, create one focused verified commit, record its SHA, and not push.",
 			"Use launch_agent model and reasoning only when those values have been verified against live SC capabilities.",
-			"Treat launch_agent success as dispatch only; verify the assigned Workbench todo and artifact separately after waiting.",
+			"After launch_agent returns, do not call wait_for_agent, poll, sleep, or inspect the child session. Background monitoring updates the Agents panel and automatically delivers a completion or failure message in a new turn.",
+			"Treat launch_agent success as dispatch only. When its completion message arrives, verify the assigned Workbench todo and artifact before advancing.",
 		],
 		parameters: Type.Object({
 			label: Type.String({ description: "Explicit SC label for the launched agent" }),
@@ -452,7 +593,7 @@ export default function workbenchExtension(pi: ExtensionAPI): void {
 			}
 			try {
 				const launched = await launchAgent(scExec, params, ctx.cwd, signal);
-				trackAgent(
+				const tracked = trackAgent(
 					params.label,
 					[
 						launched.identifiers.selector,
@@ -461,7 +602,15 @@ export default function workbenchExtension(pi: ExtensionAPI): void {
 					launched.identifiers.sessionId,
 				);
 				updateAgentPanel(ctx);
-				return launchAgentToolResult(launched, ScResultLimits);
+				startAgentWatcher(tracked, `label:${params.label}`, ctx.cwd);
+				const toolResult = launchAgentToolResult(launched, ScResultLimits);
+				return {
+					...toolResult,
+					content: [{
+						type: "text" as const,
+						text: `Started delegated agent "${agentPanelName(params.label)}". Background monitoring is active; progress appears in the Agents panel and the result will be delivered automatically.`,
+					}],
+				};
 			} catch (error) {
 				if (todoId) {
 					await cancelTodoLaunchReservation(active.root, todoId, sessionId, params.label).catch(
@@ -474,26 +623,25 @@ export default function workbenchExtension(pi: ExtensionAPI): void {
 		renderCall(args, theme) {
 			return renderAgentCall("launch", args as Record<string, unknown>, theme);
 		},
-		renderResult(result, { expanded, isPartial, isError }, theme) {
-			return renderAgentResult(
-				launchAgentResultText(result, expanded, isError),
-				isPartial,
-				isError,
-				theme,
-			);
+		renderResult(result, { expanded, isPartial, isError }, theme, context) {
+			const label = (context.args as Record<string, unknown> | undefined)?.label;
+			const summary = !expanded && !isError && result.details?.status === "launched"
+				? `${agentPanelName(typeof label === "string" ? label : "agent")} — started`
+				: launchAgentResultText(result, expanded, isError);
+			return renderAgentResult(summary, isPartial, isError, theme);
 		},
 	});
 
 	pi.registerTool({
 		name: "wait_for_agent",
-		label: "Wait for Agent",
+		label: "Retry Agent Monitoring",
 		description:
-			"Wait for one exact SC target to become idle, handling ordinary idle-wait timeouts internally, then read that same target. The call remains active until completion, cancellation, delegated-agent failure, or monitoring failure. Requires active Workbench membership. Model-facing output is limited to 50 KB or 2,000 lines; retry with a smaller last value if truncated. Runtime completion does not replace durable Workbench todo and artifact checks.",
-		promptSnippet: "Wait once for an exact SC agent target to finish, then read its response",
+			"Explicitly retry monitoring an existing exact agent target after automatic background monitoring failed or was interrupted. Do not call this after launch_agent during the normal lifecycle: launch_agent already monitors in the background and delivers completion automatically. A retry remains active until completion, cancellation, delegated-agent failure, or monitoring failure.",
+		promptSnippet: "Retry failed or interrupted monitoring for an existing delegated agent",
 		promptGuidelines: [
-			"Call wait_for_agent once with the exact label selector or stable target returned by launch_agent; ordinary idle-wait timeouts are handled internally, so do not repeat the call while it is pending.",
-			"If wait_for_agent reports a delegated-agent or monitoring failure, stop orchestration, explain whether the worker may still be running, and ask the user whether to inspect, retry monitoring or the task, or stop it. Do not relaunch automatically.",
-			"After wait_for_agent completes, inspect the assigned Workbench todo and result artifact before advancing the workflow.",
+			"Do not call wait_for_agent after launch_agent during normal orchestration; launch_agent already owns background monitoring and automatic result delivery.",
+			"Use wait_for_agent only when automatic monitoring failed or was interrupted and the user explicitly chose to retry monitoring.",
+			"If wait_for_agent reports another delegated-agent or monitoring failure, stop orchestration, explain whether the worker may still be running, and ask the user whether to inspect, retry, or stop. Do not relaunch automatically.",
 		],
 		parameters: Type.Object({
 			target: Type.String({ description: "Exact SC target, such as label:worker or id:terminal:UUID" }),
@@ -502,7 +650,17 @@ export default function workbenchExtension(pi: ExtensionAPI): void {
 		async execute(_id, params, signal, onUpdate, ctx) {
 			requireMembership();
 			const tracked = trackAgent(params.target);
+			if (agentWatchers.has(tracked)) {
+				return {
+					content: [{
+						type: "text" as const,
+						text: `Agent "${agentPanelName(params.target)}" is already monitored in the background. Wait for its automatic completion message; do not inspect durable results yet.`,
+					}],
+					details: { status: "monitoring", target: params.target },
+				};
+			}
 			tracked.status = "running";
+			attachAgentSessionMetrics(tracked, params.target, ctx.cwd, signal);
 			updateAgentPanel(ctx);
 			const startedAt = Date.now();
 			let attempts = 1;

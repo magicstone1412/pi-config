@@ -246,6 +246,16 @@ export async function executeScJson(
 	return parsed;
 }
 
+export function extractAgentSessionFile(response: unknown): string | undefined {
+	const conversationId = findString(response, "conversation_id");
+	if (conversationId?.startsWith("conv:pi:")) {
+		const sessionFile = conversationId.slice("conv:pi:".length);
+		if (sessionFile.startsWith("/") && sessionFile.endsWith(".jsonl")) return sessionFile;
+	}
+	const sessionId = findString(response, "session_id");
+	return sessionId?.startsWith("/") && sessionId.endsWith(".jsonl") ? sessionId : undefined;
+}
+
 export function extractLaunchIdentifiers(response: unknown): ScLaunchIdentifiers {
 	const identifiers: ScLaunchIdentifiers = {};
 	const label = findString(response, "label");
@@ -269,6 +279,20 @@ export async function launchAgent(
 ): Promise<LaunchAgentResponse> {
 	const response = await executeScJson(exec, buildLaunchAgentArgs(input, worktree), signal);
 	return { identifiers: extractLaunchIdentifiers(response), response };
+}
+
+export async function resolveAgentSessionFile(
+	exec: ScExecutor,
+	input: WaitForAgentInput,
+	worktree: string,
+	signal?: AbortSignal,
+): Promise<string | undefined> {
+	const response = await executeScJson(
+		exec,
+		buildReadAgentArgs({ ...input, last: 1 }, worktree),
+		signal,
+	);
+	return extractAgentSessionFile(response);
 }
 
 function agentWaitFailure(error: unknown, phase: "wait" | "read"): AgentWaitError {

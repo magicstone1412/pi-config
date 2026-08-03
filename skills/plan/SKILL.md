@@ -269,23 +269,17 @@ For each todo:
    ```
 
    Pass `todoId: "TODO-NNN"` to `launch_agent`; Workbench reserves it atomically before dispatch. If recovery is genuinely required, force-release the stale claim/reservation and use a new retry label such as `<worker-label>-retry-2`.
-3. Collect the same exact target with one `wait_for_agent` call:
-
-   ```text
-   wait_for_agent({ target: "label:WORKER_LABEL", last: 20 })
-   ```
-
-   Call it once. It reports elapsed time and handles ordinary idle-check timeouts internally before reading the completed target. Do not issue repeated wait calls while it is pending.
-4. If `wait_for_agent` reports a delegated-agent or monitoring failure, stop orchestration, explain whether the worker may still be running, and ask the user whether to inspect, retry, or stop. Never relaunch automatically.
-5. Read the todo with `todo({ action: "get", id: "TODO-NNN" })` and read `artifacts/<worker-label>/result.md`.
+3. `launch_agent` returns immediately and owns background monitoring. End the turn or continue only independent work. Do not call `wait_for_agent`, poll, sleep, or inspect the child session. The Agents panel shows live progress; completion or failure arrives automatically as a separate message and starts a new coordinator turn.
+4. If the automatic result reports a delegated-agent or monitoring failure, stop orchestration, explain whether the worker may still be running, and ask the user whether to inspect, retry monitoring, retry the task, or stop. Never relaunch automatically. Use `wait_for_agent` only if monitoring failed or was interrupted and the user explicitly chose to retry monitoring.
+5. After the automatic completion message arrives, read the todo with `todo({ action: "get", id: "TODO-NNN" })` and read `artifacts/<worker-label>/result.md`.
 6. Verify the recorded commit SHA with `git show --stat --oneline <sha>` and confirm it contains only the todo's scoped changes.
 7. Advance only when the todo is durably `done`, the result artifact exists, its verification evidence satisfies the acceptance criteria, and its focused commit is verified.
 
-A successful launch/send, an idle target, or a confident chat response is never completion. If clarification is needed in an existing worker session, use raw `sc agent send`, then collect it with one new `wait_for_agent` call and perform durable verification; do not launch a replacement merely for a follow-up. If the worker blocks, inspect the recorded reason and fix missing plan/todo context before retrying. Never mark the todo done on the worker’s behalf to hide a failed handoff. Never force-release based only on idle/aborted/WebSocket state; Workbench fencing is the safety boundary for an explicitly recovered stale worker.
+A successful launch/send, an idle target, or a confident chat response is never completion. If clarification is needed in an existing worker session, use raw `sc agent send`; the existing background watcher delivers the next terminal result automatically. Do not launch a replacement merely for a follow-up. If the worker blocks, inspect the recorded reason and fix missing plan/todo context before retrying. Never mark the todo done on the worker’s behalf to hide a failed handoff. Never force-release based only on idle/aborted/WebSocket state; Workbench fencing is the safety boundary for an explicitly recovered stale worker.
 
 ## Final Review
 
-After all implementation todos are durably done, launch one labeled terminal-mode Pi reviewer sequentially with `launch_agent`. Its prompt must supply the exact run ID, role `reviewer`, label, plan path, relevant todo IDs, worker artifact paths, and `artifacts/<reviewer-label>/review.md`, and require `~/.pi/agent/skills/review/SKILL.md`. Do not launch the reviewer concurrently with work it must assess. Collect that exact reviewer with `wait_for_agent`; use raw launch/wait/read only when the native tools do not support the required target or topology.
+After all implementation todos are durably done, launch one labeled terminal-mode Pi reviewer sequentially with `launch_agent`. Its prompt must supply the exact run ID, role `reviewer`, label, plan path, relevant todo IDs, worker artifact paths, and `artifacts/<reviewer-label>/review.md`, and require `~/.pi/agent/skills/review/SKILL.md`. Do not launch the reviewer concurrently with work it must assess. Await the automatic reviewer completion message; do not call `wait_for_agent` while its background watcher is healthy.
 
 For every exact `/plan` run, state this launch contract explicitly:
 
@@ -310,7 +304,7 @@ In SC-review mode, the reviewer must:
 5. Re-run `review-list` and `review-get` for every replied-to, resolved, or newly added ID.
 6. Only after SC verification, write `artifacts/<reviewer-label>/review.md` with initial open IDs/classifications, replies, resolutions, published IDs, verified states, remaining actionable IDs, commands/results, and verdict.
 
-Use `wait_for_agent`, check its raw SC wait/read details for target errors, and read the durable review artifact. A review response, idle target, or SC comment without that artifact is incomplete. In SC-review mode, independently repeat the raw `review-list`/`review-get` verification and require Workbench and SC evidence to agree.
+When the automatic reviewer result arrives, check it for target errors and read the durable review artifact. A review response, idle target, or SC comment without that artifact is incomplete. In SC-review mode, independently repeat the raw `review-list`/`review-get` verification and require Workbench and SC evidence to agree.
 
 - `APPROVED`: continue only when the artifact exists, no actionable comment remains open, and the current run has a verified `[APPROVED]` entry. An open approval entry or unrelated historical comment is not itself an actionable finding. Leave approval entries open during review; the conditional post-commit reconciliation below resolves them only after a requested commit succeeds.
 - `NEEDS CHANGES`: turn actionable P0/P1 findings into self-contained dependent Workbench todos, run workers sequentially, then send the existing reviewer a follow-up for re-review. It must verify fixes, reply to and resolve only addressed applicable comments, leave unresolved findings open, publish the refreshed verdict, and rewrite the artifact with current IDs/states. Repeat wait → read → artifact and SC verification. Handle P2 only when required by ISC or clearly worth the scoped effort; do not expand scope for P3 polish.

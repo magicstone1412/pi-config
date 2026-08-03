@@ -35,6 +35,7 @@ import {
 	buildReadAgentArgs,
 	buildWaitForAgentArgs,
 	executeScJson,
+	extractAgentSessionFile,
 	extractLaunchIdentifiers,
 	inferTodoIdFromAgentLabel,
 	waitForAgent,
@@ -621,7 +622,7 @@ describe("SC command adapter", () => {
 		).rejects.toThrow("target error: stalled");
 	});
 
-	test("extracts only identifiers present in the SC response", () => {
+	test("extracts launch identifiers and Pi session files from SC responses", () => {
 		expect(
 			extractLaunchIdentifiers({
 				response: {
@@ -642,6 +643,17 @@ describe("SC command adapter", () => {
 			conversationId: "conversation-456",
 		});
 		expect(extractLaunchIdentifiers({ response: { sessions: [{}] } })).toEqual({});
+		expect(extractAgentSessionFile({
+			response: {
+				targets: [{
+					session_id: "019fc310-b01f-7ccb-b819-8c8802fc829f",
+					conversation_id: "conv:pi:/tmp/worker-session.jsonl",
+				}],
+			},
+		})).toBe("/tmp/worker-session.jsonl");
+		expect(extractAgentSessionFile({ session_id: "/tmp/direct-session.jsonl" }))
+			.toBe("/tmp/direct-session.jsonl");
+		expect(extractAgentSessionFile({ session_id: "019fc310-b01f" })).toBeUndefined();
 	});
 
 	test("classifies command failures and escalates monitoring outages semantically", async () => {
