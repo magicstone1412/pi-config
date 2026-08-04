@@ -47,7 +47,7 @@ Both native tools require active Workbench membership. They are focused executio
 ### `launch_agent`
 
 ```text
-launch_agent({ label, prompt, todoId?, model?, reasoning? })
+launch_agent({ label, prompt, todoId?, model?, reasoning?, interactive? })
 ```
 
 Launches one labeled Pi terminal with `sc layout run tabs --provider pi --ui terminal --active keep` in Pi's current working directory. The prompt is passed directly as one argv value, including when multiline; no shell interpolation or temporary prompt file is used. Optional model and reasoning values must be verified by the coordinator before the call.
@@ -57,6 +57,19 @@ Worker launches pass `todoId` (or use the deterministic `TODO-NNN` label segment
 The launch tool returns immediately with a compact green `started` result and terminates that coordinator turn. An extension-owned background watcher first requires positive evidence that the new target entered `working`; it never accepts the transient idle state between terminal creation and prompt startup as completion. After startup, it waits in internal 120-second windows, updates the live panel, and reads the target when it becomes idle. Completion or failure is delivered later as a separate themed message block and automatically starts the coordinator's next turn. The coordinator does not call another tool, poll, or inspect the child session while monitoring is healthy.
 
 For worker launches, runtime idle is still insufficient: the watcher renders a green completion only when the assigned Workbench todo is durably `done`. An idle worker with an `open`, `in_progress`, `blocked`, or `failed` todo produces a failure block and explicitly prevents dependent work from launching. The automatically awakened coordinator must then verify the Workbench artifact and focused commit before advancing.
+
+### Interactive agents and `report_to_parent`
+
+Set `interactive: true` for long-lived agents where the user works directly in the child tab. These agents do not complete when they become idle; idle simply means they are waiting for another user message. The launch prompt receives an explicit reporting contract and the child uses:
+
+```text
+report_to_parent({ status: "needs_input", summary: "Choose A or B" })
+report_to_parent({ status: "done", summary: "Final design approved" })
+```
+
+`needs_input` creates an amber message block in the parent, wakes the coordinator, keeps the child alive, and leaves the panel row in `waiting`. `done` verifies any assigned todo, creates the final green parent block, removes the panel row, and gracefully closes the child session. Reports are atomic, durable Workbench state rather than transient terminal text.
+
+Active monitor records are persisted in the parent Pi session. Reload aborts the old in-memory watcher and the new extension instance restores it, including interactive report polling, panel metrics, and the original elapsed start time.
 
 ### `wait_for_agent`
 
@@ -88,6 +101,7 @@ The panel incrementally reads only newly appended JSONL session entries once per
 ## Durable Workbench tools
 
 - `run_workspace` — create, join, inspect, list, or update runs.
+- `report_to_parent` — send `needs_input` or final `done` from an interactive delegated agent.
 - `write_artifact` — write or append `plan.md` and files beneath the run root.
 - `read_artifact` — read a run file with line slicing and output limits.
 - `list_artifacts` — list plans and agent files, excluding internal state and todos.

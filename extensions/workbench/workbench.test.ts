@@ -13,6 +13,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { listArtifacts, readArtifact, resolveArtifactPath, writeArtifact } from "./artifacts.ts";
 import {
+	clearParentReport,
+	readParentReport,
+	writeParentReport,
+} from "./agent-reports.ts";
+import {
 	agentName,
 	agentPanelName,
 	launchAgentResultText,
@@ -218,7 +223,12 @@ describe("artifacts", () => {
 		const { root } = await createRun(projectRoot, "Path safety", historyRoot);
 		expect(() => resolveArtifactPath(root, "../outside.md")).toThrow("escapes the run root");
 		expect(() => resolveArtifactPath(root, "plan.md/..")).toThrow("beneath the run root");
-		for (const reservedPath of ["RUN.JSON", "Todos/TODO-001.md", ".LOCKS/lock"]) {
+		for (const reservedPath of [
+			"RUN.JSON",
+			"Todos/TODO-001.md",
+			".LOCKS/lock",
+			".agent-reports/report.json",
+		]) {
 			expect(() => resolveArtifactPath(root, reservedPath)).toThrow("reserved");
 		}
 	});
@@ -238,6 +248,22 @@ describe("artifacts", () => {
 		await expect(readArtifact(root, "artifacts/linked/secret.md")).rejects.toThrow(
 			"symbolic link",
 		);
+	});
+});
+
+describe("interactive agent reports", () => {
+	test("writes, replaces, reads, and clears durable parent reports", async () => {
+		const historyRoot = await temporaryHistoryRoot();
+		const { root } = await createRun(projectRoot, "Interactive reports", historyRoot);
+		const first = await writeParentReport(root, "run-planner", "needs_input", "Choose A or B");
+		expect(await readParentReport(root, "run-planner")).toEqual(first);
+		const done = await writeParentReport(root, "run-planner", "done", "Design approved");
+		expect(done.id).not.toBe(first.id);
+		expect((await readParentReport(root, "run-planner"))?.summary).toBe("Design approved");
+		expect((await listArtifacts(root)).some((artifact) => artifact.path.includes("agent-reports")))
+			.toBe(false);
+		await clearParentReport(root, "run-planner");
+		expect(await readParentReport(root, "run-planner")).toBeUndefined();
 	});
 });
 
@@ -968,6 +994,14 @@ describe("tool rendering", () => {
 		expect(lines[1]).toContain("12 turns · $0.84");
 		expect(lines[2]).toContain("starting…");
 		expect(lines.every((line) => panelTextWidth(line) === 64)).toBe(true);
+
+		const waiting = renderAgentPanelLines(
+			[{ ...items[0]!, status: "waiting" }],
+			48,
+			theme,
+			1_000_000,
+		);
+		expect(waiting[1]).toContain("waiting · 12 turns · $0.84");
 
 		const failed = renderAgentPanelLines(
 			[{ ...items[0]!, status: "monitoring_failed" }],

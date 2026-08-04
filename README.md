@@ -30,7 +30,7 @@ Add provider credentials to `~/.pi/agent/auth.json` and restart Pi. The optional
 
 ## Architecture
 
-- **Workbench** (`extensions/workbench/`) is the durable layer for plans, todos, and role artifacts. A clean Superconductor-managed Pi session automatically joins a deterministic ambient workspace run for its worktree, so Workbench and orchestration tools are active from the first prompt. Dedicated workflows still create and join task-specific runs. Git repositories are identified by common directory, so managed worktrees share one run history. `launch_agent` dispatches and monitors an individual Pi terminal asynchronously, keeps live progress in the Agents panel, and delivers completion as a new message; `wait_for_agent` is reserved for explicit monitoring recovery.
+- **Workbench** (`extensions/workbench/`) is the durable layer for plans, todos, and role artifacts. A clean Superconductor-managed Pi session automatically joins a deterministic ambient workspace run for its worktree, so Workbench and orchestration tools are active from the first prompt. Dedicated workflows still create and join task-specific runs. Git repositories are identified by common directory, so managed worktrees share one run history. `launch_agent` dispatches and monitors an individual Pi terminal asynchronously, keeps live progress in the Agents panel, and delivers completion as a new message. Interactive launches remain alive across idle periods and explicitly notify the parent through `report_to_parent`; `wait_for_agent` is reserved for monitoring recovery.
 - **Superconductor** (`sc`) is the runtime control plane for delegated work, visible sessions, labels, layouts, teams, coordination state, managed worktrees, and in-app reviews. Raw SC remains the interface for capability preflight, follow-up controls, teams, unsupported launch topologies, and review operations.
 - **Skills and prompts** define the planner, coordinator, scout, worker, reviewer, and architecture-review contracts.
 
@@ -78,7 +78,7 @@ Explicit human intent remains required for managed worktree creation/deletion, t
 
 | Path | Provides |
 |---|---|
-| `extensions/workbench/` | Durable run/artifact/todo tools, native `launch_agent` and `wait_for_agent` SC primitives, plus `/runs` and `/todos` |
+| `extensions/workbench/` | Durable runs/todos/artifacts, async `launch_agent`, interactive `report_to_parent`, recovery waits, plus `/runs` and `/todos` |
 | `extensions/execute-command/` | `execute_command` for self-invoked slash commands and steer messages |
 
 ## Verification

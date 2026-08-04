@@ -4,7 +4,7 @@ import path from "node:path";
 import { atomicWrite, pathExists, resolveInside, withFileLock } from "./storage.ts";
 import type { ArtifactInfo } from "./types.ts";
 
-const RESERVED_ROOT_NAMES = new Set(["run.json", "todos", ".locks"]);
+const RESERVED_ROOT_NAMES = new Set(["run.json", "todos", ".locks", ".agent-reports"]);
 
 export function resolveArtifactPath(runRoot: string, relativePath: string): string {
 	const target = resolveInside(runRoot, relativePath);

@@ -149,7 +149,7 @@ export function taskLineCount(value: unknown): number {
 	return typeof value === "string" && value ? value.split("\n").length : 0;
 }
 
-export type AgentPanelStatus = "launched" | "running" | "failed" | "monitoring_failed";
+export type AgentPanelStatus = "launched" | "running" | "waiting" | "failed" | "monitoring_failed";
 
 export interface AgentPanelItem {
 	target: string;
@@ -277,6 +277,12 @@ function panelStatus(item: AgentPanelItem): { text: string; color: string } {
 		return {
 			text: metrics ? `monitoring failed · ${metrics}` : "monitoring failed",
 			color: "error",
+		};
+	}
+	if (item.status === "waiting") {
+		return {
+			text: metrics ? `waiting · ${metrics}` : "waiting for input…",
+			color: "warning",
 		};
 	}
 	if (metrics) return { text: metrics, color: "accent" };

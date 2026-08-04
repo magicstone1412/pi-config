@@ -353,7 +353,24 @@ function abortableDelay(milliseconds: number, signal?: AbortSignal): Promise<voi
 	});
 }
 
-async function waitForAgentActivity(
+export async function getAgentRuntimeState(
+	exec: ScExecutor,
+	input: WaitForAgentInput,
+	worktree: string,
+	signal?: AbortSignal,
+): Promise<{ state?: string; phase?: string }> {
+	try {
+		const response = await executeScJson(exec, buildGetAgentArgs(input, worktree), signal);
+		return {
+			state: findString(response, "state"),
+			phase: findString(response, "phase"),
+		};
+	} catch (error) {
+		throw agentWaitFailure(error, "start");
+	}
+}
+
+export async function waitForAgentActivity(
 	exec: ScExecutor,
 	input: WaitForAgentInput,
 	worktree: string,
@@ -362,14 +379,7 @@ async function waitForAgentActivity(
 	const startupTimeoutMs = input.startupTimeoutMs ?? 30_000;
 	const deadline = Date.now() + startupTimeoutMs;
 	while (Date.now() < deadline) {
-		let response: unknown;
-		try {
-			response = await executeScJson(exec, buildGetAgentArgs(input, worktree), signal);
-		} catch (error) {
-			throw agentWaitFailure(error, "start");
-		}
-		const state = findString(response, "state");
-		const phase = findString(response, "phase");
+		const { state, phase } = await getAgentRuntimeState(exec, input, worktree, signal);
 		if (state === "working" || phase === "running") return;
 		await abortableDelay(input.startupPollMs ?? 250, signal);
 	}

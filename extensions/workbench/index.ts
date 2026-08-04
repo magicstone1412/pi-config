@@ -15,6 +15,12 @@ import { Type } from "typebox";
 import path from "node:path";
 import { listArtifacts, readArtifact, resolveArtifactPath, writeArtifact } from "./artifacts.ts";
 import {
+	clearParentReport,
+	readParentReport,
+	writeParentReport,
+	type ParentReport,
+} from "./agent-reports.ts";
+import {
 	agentName,
 	agentPanelName,
 	launchAgentResultText,
@@ -41,10 +47,12 @@ import {
 import { SessionMetricsReader } from "./session-metrics.ts";
 import {
 	AgentWaitError,
+	getAgentRuntimeState,
 	inferTodoIdFromAgentLabel,
 	launchAgent,
 	resolveAgentSessionFile,
 	waitForAgent,
+	waitForAgentActivity,
 	type ScExecutor,
 } from "./sc.ts";
 import {
@@ -162,6 +170,20 @@ export default function workbenchExtension(pi: ExtensionAPI): void {
 		aliases: Set<string>;
 		metricsReader?: SessionMetricsReader;
 		resolvingSession?: boolean;
+		interactive?: boolean;
+		lastReportId?: string;
+		monitorRecord?: PersistedAgentMonitor;
+	}
+	interface PersistedAgentMonitor {
+		action: "start" | "stop";
+		runId: string;
+		label: string;
+		target: string;
+		cwd: string;
+		startedAt: number;
+		interactive: boolean;
+		todoId?: string;
+		sessionFile?: string;
 	}
 	const trackedAgents = new Map<string, TrackedAgent>();
 	const agentWatchers = new Map<TrackedAgent, AbortController>();
@@ -187,8 +209,12 @@ export default function workbenchExtension(pi: ExtensionAPI): void {
 			await Promise.all(Array.from(trackedAgents.values()).map(async (agent) => {
 				if (!agent.metricsReader) return;
 				try {
+					const previousTurns = agent.metrics?.turns ?? 0;
 					await agent.metricsReader.refresh();
 					agent.metrics = { ...agent.metricsReader.metrics };
+					if (agent.status === "waiting" && agent.metrics.turns > previousTurns) {
+						agent.status = "running";
+					}
 				} catch {
 					// Progress metrics are optional; agent monitoring remains authoritative.
 				}
@@ -265,6 +291,15 @@ export default function workbenchExtension(pi: ExtensionAPI): void {
 		}
 	}
 
+	function persistAgentMonitor(record: PersistedAgentMonitor): void {
+		pi.appendEntry("workbench-agent-monitor", record);
+	}
+
+	function stopPersistedAgentMonitor(agent: TrackedAgent): void {
+		if (!agent.monitorRecord) return;
+		persistAgentMonitor({ ...agent.monitorRecord, action: "stop" });
+	}
+
 	function agentElapsedText(milliseconds: number): string {
 		const totalSeconds = Math.max(0, Math.floor(milliseconds / 1000));
 		const minutes = Math.floor(totalSeconds / 60);
@@ -292,19 +327,176 @@ export default function workbenchExtension(pi: ExtensionAPI): void {
 			});
 	}
 
+	async function verifyAgentAssignment(
+		assignment?: { root: string; todoId: string },
+	): Promise<void> {
+		if (!assignment) return;
+		let todoState;
+		try {
+			todoState = await getTodo(assignment.root, assignment.todoId);
+		} catch (error) {
+			throw new AgentWaitError(
+				"monitoring_unavailable",
+				`Workbench could not verify ${assignment.todoId}: ${error instanceof Error ? error.message : String(error)}. Do not treat the task as completed. Ask the user whether to inspect, retry monitoring, or stop.`,
+				true,
+			);
+		}
+		if (todoState.status !== "done") {
+			throw new AgentWaitError(
+				"agent_failed",
+				`The delegated agent reported completion before completing ${assignment.todoId}; its durable status is ${todoState.status}. Do not advance or launch the next worker. Inspect the agent result and ask the user whether to retry the task or stop.`,
+				false,
+			);
+		}
+	}
+
+	function watcherDelay(milliseconds: number, signal: AbortSignal): Promise<void> {
+		return new Promise((resolve, reject) => {
+			if (signal.aborted) {
+				reject(new AgentWaitError("cancelled", "Agent monitoring was cancelled.", true));
+				return;
+			}
+			const done = () => {
+				signal.removeEventListener("abort", abort);
+				resolve();
+			};
+			const timer = setTimeout(done, milliseconds);
+			const abort = () => {
+				clearTimeout(timer);
+				signal.removeEventListener("abort", abort);
+				reject(new AgentWaitError("cancelled", "Agent monitoring was cancelled.", true));
+			};
+			signal.addEventListener("abort", abort, { once: true });
+		});
+	}
+
+	function sendInteractiveReport(agent: TrackedAgent, target: string, report: ParentReport): void {
+		const name = agentPanelName(agent.target);
+		const content = report.status === "done"
+			? `Interactive agent "${name}" reported done:\n\n${report.summary}`
+			: `Interactive agent "${name}" needs parent input:\n\n${report.summary}\n\nThe agent remains open at ${target}.`;
+		pi.sendMessage(
+			{
+				customType: "workbench_agent_result",
+				content,
+				display: true,
+				details: {
+					status: report.status === "done" ? "completed" : "needs_input",
+					name,
+					target,
+					elapsedMs: Date.now() - agent.startedAt,
+					summary: report.summary,
+					sessionFile: agent.metricsReader?.path,
+				},
+			},
+			{ triggerTurn: true, deliverAs: "steer" },
+		);
+	}
+
+	function handleAgentWatcherFailure(
+		agent: TrackedAgent,
+		target: string,
+		cwd: string,
+		error: unknown,
+		controller: AbortController,
+	): void {
+		if (controller.signal.aborted || (error instanceof AgentWaitError && error.kind === "cancelled")) {
+			return;
+		}
+		const failure = error instanceof AgentWaitError ? error : new AgentWaitError(
+			"monitoring_unavailable",
+			error instanceof Error ? error.message : String(error),
+			true,
+		);
+		agent.status = failure.kind === "agent_failed" ? "failed" : "monitoring_failed";
+		stopPersistedAgentMonitor(agent);
+		updateAgentPanel();
+		const name = agentPanelName(agent.target);
+		pi.sendMessage(
+			{
+				customType: "workbench_agent_result",
+				content: failure.message,
+				display: true,
+				details: {
+					status: "failed",
+					name,
+					target,
+					elapsedMs: Date.now() - agent.startedAt,
+					error: failure.message,
+					agentMayStillBeRunning: failure.agentMayStillBeRunning,
+					sessionFile: agent.metricsReader?.path,
+				},
+			},
+			{ triggerTurn: true, deliverAs: "steer" },
+		);
+	}
+
+	async function watchInteractiveAgent(
+		agent: TrackedAgent,
+		target: string,
+		cwd: string,
+		runRoot: string,
+		assignment: { root: string; todoId: string } | undefined,
+		signal: AbortSignal,
+		restored: boolean,
+	): Promise<void> {
+		if (!restored) {
+			await waitForAgentActivity(
+				scExec,
+				{ target, startupTimeoutMs: 30_000 },
+				cwd,
+				signal,
+			);
+		}
+		agent.status = "running";
+		updateAgentPanel();
+		while (true) {
+			const report = await readParentReport(runRoot, normalizedAgentTarget(agent.target));
+			if (report && report.id !== agent.lastReportId) {
+				agent.lastReportId = report.id;
+				if (report.status === "needs_input") {
+					agent.status = "waiting";
+					updateAgentPanel();
+					sendInteractiveReport(agent, target, report);
+				} else {
+					await verifyAgentAssignment(assignment);
+					stopPersistedAgentMonitor(agent);
+					removeTrackedAgent(agent);
+					updateAgentPanel();
+					sendInteractiveReport(agent, target, report);
+					return;
+				}
+			}
+			const runtime = await getAgentRuntimeState(scExec, { target }, cwd, signal);
+			agent.status = runtime.state === "working" || runtime.phase === "running"
+				? "running"
+				: "waiting";
+			updateAgentPanel();
+			await watcherDelay(1_000, signal);
+		}
+	}
+
 	function startAgentWatcher(
 		agent: TrackedAgent,
 		target: string,
 		cwd: string,
+		runRoot: string,
 		assignment?: { root: string; todoId: string },
+		restored = false,
 	): void {
 		if (agentWatchers.has(agent)) return;
 		const controller = new AbortController();
 		agentWatchers.set(agent, controller);
 		attachAgentSessionMetrics(agent, target, cwd, controller.signal);
+		if (agent.interactive) {
+			void watchInteractiveAgent(agent, target, cwd, runRoot, assignment, controller.signal, restored)
+				.catch((error) => handleAgentWatcherFailure(agent, target, cwd, error, controller))
+				.finally(() => agentWatchers.delete(agent));
+			return;
+		}
 		void waitForAgent(
 			scExec,
-			{ target, last: 20, requireActivity: true },
+			{ target, last: 20, requireActivity: !restored },
 			cwd,
 			controller.signal,
 			() => {
@@ -312,25 +504,8 @@ export default function workbenchExtension(pi: ExtensionAPI): void {
 				updateAgentPanel();
 			},
 		).then(async (result) => {
-			if (assignment) {
-				let todoState;
-				try {
-					todoState = await getTodo(assignment.root, assignment.todoId);
-				} catch (error) {
-					throw new AgentWaitError(
-						"monitoring_unavailable",
-						`The delegated agent became idle, but Workbench could not verify ${assignment.todoId}: ${error instanceof Error ? error.message : String(error)}. Do not treat the task as completed. Ask the user whether to inspect, retry monitoring, or stop.`,
-						true,
-					);
-				}
-				if (todoState.status !== "done") {
-					throw new AgentWaitError(
-						"agent_failed",
-						`The delegated agent became idle before completing ${assignment.todoId}; its durable status is ${todoState.status}. Do not advance or launch the next worker. Inspect the agent result and ask the user whether to retry the task or stop.`,
-						false,
-					);
-				}
-			}
+			await verifyAgentAssignment(assignment);
+			stopPersistedAgentMonitor(agent);
 			removeTrackedAgent(agent);
 			updateAgentPanel();
 			const name = agentPanelName(agent.target);
@@ -353,34 +528,7 @@ export default function workbenchExtension(pi: ExtensionAPI): void {
 				{ triggerTurn: true, deliverAs: "steer" },
 			);
 		}).catch((error) => {
-			if (controller.signal.aborted || (error instanceof AgentWaitError && error.kind === "cancelled")) {
-				return;
-			}
-			const failure = error instanceof AgentWaitError ? error : new AgentWaitError(
-				"monitoring_unavailable",
-				error instanceof Error ? error.message : String(error),
-				true,
-			);
-			agent.status = failure.kind === "agent_failed" ? "failed" : "monitoring_failed";
-			updateAgentPanel();
-			const name = agentPanelName(agent.target);
-			pi.sendMessage(
-				{
-					customType: "workbench_agent_result",
-					content: failure.message,
-					display: true,
-					details: {
-						status: "failed",
-						name,
-						target,
-						elapsedMs: Date.now() - agent.startedAt,
-						error: failure.message,
-						agentMayStillBeRunning: failure.agentMayStillBeRunning,
-						sessionFile: agent.metricsReader?.path,
-					},
-				},
-				{ triggerTurn: true, deliverAs: "steer" },
-			);
+			handleAgentWatcherFailure(agent, target, cwd, error, controller);
 		}).finally(() => {
 			agentWatchers.delete(agent);
 		});
@@ -507,9 +655,37 @@ export default function workbenchExtension(pi: ExtensionAPI): void {
 		);
 	}
 
+	function restoreAgentMonitors(ctx: any): void {
+		if (!membership) return;
+		const active = new Map<string, PersistedAgentMonitor>();
+		for (const entry of ctx.sessionManager.getEntries()) {
+			if (entry.type !== "custom" || entry.customType !== "workbench-agent-monitor") continue;
+			const record = entry.data as PersistedAgentMonitor | undefined;
+			if (!record || record.runId !== membership.runId || typeof record.target !== "string") continue;
+			if (record.action === "stop") active.delete(record.target);
+			else if (record.action === "start") active.set(record.target, record);
+		}
+		for (const record of active.values()) {
+			const tracked = trackAgent(record.label, [], record.sessionFile);
+			tracked.startedAt = record.startedAt;
+			tracked.interactive = record.interactive;
+			tracked.monitorRecord = record;
+			updateAgentPanel(ctx);
+			startAgentWatcher(
+				tracked,
+				record.target,
+				record.cwd,
+				membership.root,
+				record.todoId ? { root: membership.root, todoId: record.todoId } : undefined,
+				true,
+			);
+		}
+	}
+
 	pi.on("session_start", async (_event, ctx) => {
 		agentPanelCtx = ctx;
 		await restoreMembership(ctx);
+		restoreAgentMonitors(ctx);
 		if (membership || !isCleanSession(ctx.sessionManager.getEntries())) return;
 
 		const workspace = detectSuperconductorWorkspace();
@@ -555,11 +731,15 @@ export default function workbenchExtension(pi: ExtensionAPI): void {
 		const details = message.details as Record<string, unknown> | undefined;
 		if (!details) return undefined;
 		const failed = details.status === "failed";
+		const needsInput = details.status === "needs_input";
 		const name = typeof details.name === "string" ? details.name : "Agent";
 		const elapsedMs = typeof details.elapsedMs === "number" ? details.elapsedMs : 0;
-		const header = `${theme.fg(failed ? "error" : "success", failed ? "✗" : "✓")} ` +
+		const icon = failed ? "✗" : needsInput ? "!" : "✓";
+		const iconColor = failed ? "error" : needsInput ? "warning" : "success";
+		const status = failed ? "failed" : needsInput ? "needs input" : "completed";
+		const header = `${theme.fg(iconColor, icon)} ` +
 			theme.fg("toolTitle", theme.bold(name)) +
-			theme.fg("dim", ` — ${failed ? "failed" : "completed"} (${agentElapsedText(elapsedMs)})`);
+			theme.fg("dim", ` — ${status} (${agentElapsedText(elapsedMs)})`);
 		const lines = [header];
 		if (options.expanded) {
 			const content = typeof message.content === "string" ? message.content : "";
@@ -568,12 +748,15 @@ export default function workbenchExtension(pi: ExtensionAPI): void {
 				lines.push("", theme.fg("dim", `Session: ${details.sessionFile}`));
 			}
 		} else {
+			const summary = typeof details.summary === "string" ? details.summary : "";
 			lines.push(
 				theme.fg(
 					"muted",
 					failed
 						? "Monitoring stopped; the coordinator needs your decision."
-						: "Runtime result delivered; verifying durable Workbench evidence.",
+						: needsInput
+							? summary
+							: "Runtime result delivered; verifying durable Workbench evidence.",
 				),
 				theme.fg("muted", keyHint("app.tools.expand", "to expand")),
 			);
@@ -581,23 +764,71 @@ export default function workbenchExtension(pi: ExtensionAPI): void {
 		const box = new Box(
 			1,
 			1,
-			(text: string) => theme.bg(failed ? "toolErrorBg" : "toolSuccessBg", text),
+			(text: string) => theme.bg(
+				failed ? "toolErrorBg" : needsInput ? "toolPendingBg" : "toolSuccessBg",
+				text,
+			),
 		);
 		box.addChild(new Text(lines.join("\n"), 0, 0));
 		return box;
 	});
 
 	pi.registerTool({
+		name: "report_to_parent",
+		label: "Report to Parent",
+		description:
+			"Report from a long-lived interactive delegated agent to its parent coordinator. Use status=needs_input to request coordinator help while staying alive, or status=done only when the user says the work is finished or the assigned task is fully complete. The report is durable and the parent is notified automatically.",
+		promptSnippet: "Notify the parent coordinator from an interactive delegated session",
+		promptGuidelines: [
+			"Use report_to_parent only from an interactive delegated agent launched with interactive=true.",
+			"Call report_to_parent with status=needs_input when the parent coordinator must answer or act; remain available for further user input.",
+			"Call report_to_parent with status=done when the user says the interactive work is done or the task is fully complete; include a concise final summary.",
+		],
+		parameters: Type.Object({
+			status: StringEnum(["done", "needs_input"] as const),
+			summary: Type.String({ minLength: 1, description: "Concise progress, question, or final summary for the parent coordinator" }),
+		}),
+		async execute(_id, params, _signal, _update, ctx) {
+			const active = requireMembership();
+			if (!active.label || active.role === "coordinator" || active.role === "workspace") {
+				throw new Error("report_to_parent is available only inside a labeled delegated agent session.");
+			}
+			const summary = params.summary.trim();
+			if (!summary) throw new Error("summary must not be empty");
+			const report = await writeParentReport(active.root, active.label, params.status, summary);
+			if (params.status === "done") ctx.shutdown();
+			return {
+				content: [{
+					type: "text" as const,
+					text: params.status === "done"
+						? "Final report delivered to the parent coordinator. This interactive session will close when idle."
+						: "Input request delivered to the parent coordinator. Continue waiting for user or parent guidance.",
+				}],
+				details: { status: params.status, report },
+				...(params.status === "done" ? { terminate: true } : {}),
+			};
+		},
+		renderCall(args, theme) {
+			const status = (args as Record<string, unknown> | undefined)?.status;
+			return renderToolCall("Report to parent", typeof status === "string" ? status : "", theme);
+		},
+		renderResult(result, { expanded }, theme) {
+			return renderToolResult(result, expanded, theme);
+		},
+	});
+
+	pi.registerTool({
 		name: "launch_agent",
 		label: "Launch Agent",
 		description:
-			"Launch one labeled Pi terminal in the current worktree and monitor it asynchronously. The tool returns immediately after dispatch; live progress stays in the Agents panel and completion or failure is delivered automatically as a new message that starts the next coordinator turn. Worker launches reserve their Workbench todo before dispatch, preventing duplicate workers. Requires active Workbench membership and an explicit full prompt. Optional model and reasoning values must already be verified against SC capabilities.",
+			"Launch one labeled Pi terminal in the current worktree and monitor it asynchronously. The tool returns immediately after dispatch; live progress stays in the Agents panel and completion or failure is delivered automatically as a new message that starts the next coordinator turn. Set interactive=true for a long-lived user-driven session: ordinary idle is treated as waiting, and the child must call report_to_parent to request input or finish. Worker launches reserve their Workbench todo before dispatch, preventing duplicate workers. Requires active Workbench membership and an explicit full prompt.",
 		promptSnippet: "Start one delegated Pi agent; progress and completion are delivered automatically",
 		promptGuidelines: [
 			"Use launch_agent only after joining or creating the active Workbench run, with an explicit deterministic label and complete role prompt.",
 			"Pass launch_agent todoId for every worker launch; labels containing TODO-NNN are also linked automatically. A recovered worker retry must use a new label.",
 			"Every launch_agent worker prompt must require the worker to read the commit skill, create one focused verified commit, record its SHA, and not push.",
 			"Use launch_agent model and reasoning only when those values have been verified against live SC capabilities.",
+			"Use launch_agent interactive=true for user-driven sessions that may become idle between messages; the child reports needs_input or done explicitly with report_to_parent.",
 			"After launch_agent returns, do not call wait_for_agent, poll, sleep, or inspect the child session. Background monitoring updates the Agents panel and automatically delivers a completion or failure message in a new turn.",
 			"Treat launch_agent success as dispatch only. When its completion message arrives, verify the assigned Workbench todo and artifact before advancing.",
 		],
@@ -607,6 +838,7 @@ export default function workbenchExtension(pi: ExtensionAPI): void {
 			todoId: Type.Optional(Type.String({ description: "Workbench todo reserved for this worker launch" })),
 			model: Type.Optional(Type.String({ description: "Verified Pi model ID" })),
 			reasoning: Type.Optional(Type.String({ description: "Verified Pi reasoning level" })),
+			interactive: Type.Optional(Type.Boolean({ description: "Keep the agent alive across idle periods until it explicitly calls report_to_parent with status=done" })),
 		}),
 		async execute(_id, params, signal, _update, ctx) {
 			const active = requireMembership();
@@ -616,7 +848,16 @@ export default function workbenchExtension(pi: ExtensionAPI): void {
 				await reserveTodoLaunch(active.root, todoId, active, sessionId, params.label);
 			}
 			try {
-				const launched = await launchAgent(scExec, params, ctx.cwd, signal);
+				if (params.interactive) await clearParentReport(active.root, params.label);
+				const interactiveContract = params.interactive
+					? "\n\n## Interactive parent reporting\nThis is a long-lived interactive session. Ordinary idle periods mean you are waiting for the user and do not complete the parent task. When you need the parent coordinator's input, call report_to_parent with status=needs_input and a concise summary. When the user says the work is done or you have fully completed it, call report_to_parent with status=done and your final summary. Do not claim completion without that tool call."
+					: "";
+				const launched = await launchAgent(
+					scExec,
+					{ ...params, prompt: `${params.prompt}${interactiveContract}` },
+					ctx.cwd,
+					signal,
+				);
 				const tracked = trackAgent(
 					params.label,
 					[
@@ -625,11 +866,27 @@ export default function workbenchExtension(pi: ExtensionAPI): void {
 					],
 					launched.identifiers.sessionId,
 				);
+				tracked.interactive = params.interactive ?? false;
+				const monitorTarget = `label:${params.label}`;
+				const monitorRecord: PersistedAgentMonitor = {
+					action: "start",
+					runId: active.runId,
+					label: params.label,
+					target: monitorTarget,
+					cwd: ctx.cwd,
+					startedAt: tracked.startedAt,
+					interactive: tracked.interactive,
+					todoId,
+					sessionFile: launched.identifiers.sessionId,
+				};
+				tracked.monitorRecord = monitorRecord;
+				persistAgentMonitor(monitorRecord);
 				updateAgentPanel(ctx);
 				startAgentWatcher(
 					tracked,
-					`label:${params.label}`,
+					monitorTarget,
 					ctx.cwd,
+					active.root,
 					todoId ? { root: active.root, todoId } : undefined,
 				);
 				const toolResult = launchAgentToolResult(launched, ScResultLimits);
