@@ -850,7 +850,7 @@ export default function workbenchExtension(pi: ExtensionAPI): void {
 			try {
 				if (params.interactive) await clearParentReport(active.root, params.label);
 				const interactiveContract = params.interactive
-					? "\n\n## Interactive parent reporting\nThis is a long-lived interactive session. Ordinary idle periods mean you are waiting for the user and do not complete the parent task. When you need the parent coordinator's input, call report_to_parent with status=needs_input and a concise summary. When the user says the work is done or you have fully completed it, call report_to_parent with status=done and your final summary. Do not claim completion without that tool call."
+					? `\n\n## Interactive parent reporting\nBefore doing anything else, join the parent Workbench run with run_workspace using action=join, runId=${JSON.stringify(active.runId)}, projectPath=${JSON.stringify(active.projectPath)}, role="interactive", label=${JSON.stringify(params.label)}${todoId ? `, todoId=${JSON.stringify(todoId)}` : ""}. This handshake is mandatory: report_to_parent is unavailable until the labeled membership is active.\n\nThis is a long-lived interactive session. Ordinary idle periods mean you are waiting for the user and do not complete the parent task. When you need the parent coordinator's input, call report_to_parent with status=needs_input and a concise summary. When the user says the work is done or you have fully completed it, call report_to_parent with status=done and your final summary. Do not claim completion without that tool call.`
 					: "";
 				const launched = await launchAgent(
 					scExec,

@@ -602,14 +602,21 @@ describe("SC command adapter", () => {
 		});
 	});
 
-	test("does not accept the transient idle state before a launched agent starts", async () => {
+	test("retries label registration and does not accept pre-start idle", async () => {
 		const calls: string[][] = [];
 		const exec: ScExecutor = async (_command, args) => {
 			calls.push(args);
 			if (args[0] === "agents") {
-				const state = calls.filter((call) => call[0] === "agents").length === 1
-					? "idle"
-					: "working";
+				const getAttempt = calls.filter((call) => call[0] === "agents").length;
+				if (getAttempt === 1) {
+					return {
+						stdout: JSON.stringify({ response: { target_error: { message: "agent label 'worker' not found", code: "not_found" } } }),
+						stderr: "",
+						code: 3,
+						killed: false,
+					};
+				}
+				const state = getAttempt === 2 ? "idle" : "working";
 				return {
 					stdout: JSON.stringify({ response: { agent: { state, phase: state === "working" ? "running" : "idle" } } }),
 					stderr: "",
@@ -632,6 +639,7 @@ describe("SC command adapter", () => {
 		const result = await waitForAgent(exec, input, projectRoot);
 		expect(result.attempts).toBe(1);
 		expect(calls.map((call) => call.slice(0, 2))).toEqual([
+			["agents", "get"],
 			["agents", "get"],
 			["agents", "get"],
 			["agent", "wait"],

@@ -60,7 +60,7 @@ For worker launches, runtime idle is still insufficient: the watcher renders a g
 
 ### Interactive agents and `report_to_parent`
 
-Set `interactive: true` for long-lived agents where the user works directly in the child tab. These agents do not complete when they become idle; idle simply means they are waiting for another user message. The launch prompt receives an explicit reporting contract and the child uses:
+Set `interactive: true` for long-lived agents where the user works directly in the child tab. These agents do not complete when they become idle; idle simply means they are waiting for another user message. The launch prompt first requires the child to join the parent's exact Workbench run with role `interactive` and its launch label; this handshake makes `report_to_parent` available and prevents ambient workspace membership from being mistaken for delegated identity. The child then uses:
 
 ```text
 report_to_parent({ status: "needs_input", summary: "Choose A or B" })

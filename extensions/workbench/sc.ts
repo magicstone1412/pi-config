@@ -379,8 +379,15 @@ export async function waitForAgentActivity(
 	const startupTimeoutMs = input.startupTimeoutMs ?? 30_000;
 	const deadline = Date.now() + startupTimeoutMs;
 	while (Date.now() < deadline) {
-		const { state, phase } = await getAgentRuntimeState(exec, input, worktree, signal);
-		if (state === "working" || phase === "running") return;
+		try {
+			const { state, phase } = await getAgentRuntimeState(exec, input, worktree, signal);
+			if (state === "working" || phase === "running") return;
+		} catch (error) {
+			const stillRegistering = error instanceof AgentWaitError &&
+				error.kind === "agent_failed" &&
+				/(?:not[_ -]?found|label .* not found)/i.test(error.message);
+			if (!stillRegistering) throw error;
+		}
 		await abortableDelay(input.startupPollMs ?? 250, signal);
 	}
 	throw new AgentWaitError(
