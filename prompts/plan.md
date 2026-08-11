@@ -17,5 +17,5 @@ Preserve these workflow guarantees:
 - Require each successful source-writing worker to create one focused verified commit, record its SHA, and never push.
 - The final reviewer must read the Workbench artifacts and fully reconcile the run through SC review checklist, diff, comment, reply/status, and approval/finding capabilities; artifact-only review is not completion for `/plan`.
 
-Planning request:
+Users planning request:
 $ARGUMENTS
