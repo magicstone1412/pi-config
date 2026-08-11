@@ -7,7 +7,30 @@ description: Review code changes for quality, security, and correctness. Produce
 
 Review the requested changes, report evidence-based findings, and stop. Do not modify implementation code or todos.
 
-## Run Setup
+## Standard Reviewer Dispatch
+
+Unless this session was explicitly launched as the reviewer, coordinate the review here but delegate the assessment to **Claude Code / Fable 5** through Workbench:
+
+1. Run `sc instructions orchestration`, `sc instructions layout`, and `sc instructions review`.
+2. Verify live capabilities show provider `claude` with structured read, model `claude-fable-5`, reasoning `high`, and the required `sc worktree review-*` commands. If unavailable, report the exact limitation; do not silently substitute Pi or another reviewer.
+3. Use the active Workbench run (ambient workspace is sufficient for a direct review) and launch:
+
+   ```text
+   launch_review_agent({
+     label: "<run-id>-reviewer-claude-<short-task-or-retry>",
+     provider: "claude",
+     model: "claude-fable-5",
+     reasoning: "high",
+     prompt: "<complete read-only review scope and acceptance criteria>",
+   })
+   ```
+
+4. Treat launch as dispatch only. Do not poll or read the reviewer. Workbench accepts completion only after a provider-authored nonce-bound SC final comment and then generates `artifacts/<label>/review.md`.
+5. When the automatic completion message arrives, read the generated artifact and independently verify every relevant comment ID/state with `review-list` and `review-get`. Report the verdict and findings; do not fix them.
+
+A direct invocation of this standard review workflow authorizes only run-scoped review comments needed to report its findings/verdict. It does not authorize unrelated thread mutation. The Claude reviewer is read-only, and its finished pane remains open for inspection.
+
+## Delegated Reviewer Contract
 
 When a run ID, role, and label are supplied, join first:
 
@@ -17,7 +40,7 @@ run_workspace({ action: "join", runId: "<run-id>", role: "reviewer", label: "<la
 
 In an already joined Pi session, use the active run. Read `plan.md`, relevant todo records, worker result artifacts, and the changed code before assessing it.
 
-Use in-app SC review mode when the human directly authorized that outcome or when the launch contract says the reviewer belongs to an exact `/plan` run. Exact `/plan` always requires this mode for its run-scoped final review. Ordinary reviews remain artifact-only and must not read or mutate SC review threads. The durable review record remains the Workbench artifact; SC comments, target output, and idle state do not prove review completion.
+The standard Claude Code / Fable 5 workflow and exact `/plan` both use in-app SC review mode. A legacy session explicitly launched as a Pi reviewer follows the same reconciliation contract below. The durable review record remains the Workbench artifact; SC comments, target output, and idle state do not prove review completion.
 
 ## Process
 
@@ -55,7 +78,7 @@ Always flag concrete security issues such as auth bypass, data exposure, unsanit
 
 ## Artifact
 
-Write this exact path convention:
+For the standard Claude Code / Fable 5 workflow, Workbench generates this artifact from the verified tagged SC comments. A legacy delegated Pi reviewer writes the same exact path convention:
 
 ```typescript
 write_artifact({ path: "artifacts/<label>/review.md", content: "..." });
@@ -98,4 +121,4 @@ write_artifact({ path: "artifacts/<label>/review.md", content: "..." });
 
 If there are no findings, set the verdict to `APPROVED` and keep the report short. In SC-review mode, the artifact must record all relevant SC comment IDs, classifications, and states verified with `review-list`/`review-get`. The Workbench artifact is required even when the SC lifecycle succeeds; artifact-only review cannot complete an exact `/plan` run.
 
-When the launch contract requires durable parent reporting, call `report_to_parent({status: "done", ...})` only after the review artifact and required SC comments are verified, and before the final response. A terminal verdict or runtime idle is not a handoff.
+When a legacy Pi launch contract requires durable parent reporting, call `report_to_parent({status: "done", ...})` only after the review artifact and required SC comments are verified, and before the final response. Standard Claude reviewers complete through the nonce-bound SC marker instead. A terminal verdict or runtime idle is not a handoff.

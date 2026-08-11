@@ -65,24 +65,24 @@ sc chat providers --json
 
 For delegated Pi sessions, use `--provider pi --ui terminal` by default. Use chat mode only for an explicitly requested app UI outcome.
 
-| Outcome                                | Use                                                               |
-| -------------------------------------- | ----------------------------------------------------------------- | ---- | ------ |
-| Initial visible agent session          | `sc layout run views                                              | tabs | panes` |
-| Default delegated Pi session           | `sc layout run ... --provider pi --ui terminal`                   |
-| Explicit chat-mode session in app UI   | `sc layout run ... --ui chat`                                     |
-| Follow-up to an existing agent         | `sc agent send`                                                   |
-| Wait for completion and collect output | `sc agent wait`, then `sc agent read`                             |
-| Redirect a running agent               | `sc agent interrupt`, then `sc agent send`                        |
-| Parallel fan-out/fan-in                | `sc team run`                                                     |
-| Workbench Pi role                      | `launch_agent` with explicit role; durable report/todo monitoring |
-| External-provider code review          | `launch_review_agent`; nonce-bound SC comments + review artifact  |
-| Raw sequential worker then reviewer    | launch, wait/read, then launch reviewer                           |
-| Layout-only broadcast/prefill/dry run  | `sc layout send`                                                  |
-| Stable names or broadcasts             | `sc agents label`, `sc agents group`                              |
-| Shared machine-readable coordination   | `sc coordination-state`                                           |
-| App-managed worktree                   | `sc worktree`                                                     |
-| In-app review thread                   | `sc worktree review-*`                                            |
-| Workspace/sidebar management           | `sc workspace`, `sc section`                                      |
+| Outcome                                | Use                                                                |
+| -------------------------------------- | ------------------------------------------------------------------ |
+| Initial visible agent session          | `sc layout run <views-or-tabs-or-panes>`                           |
+| Default delegated Pi session           | `sc layout run ... --provider pi --ui terminal`                    |
+| Explicit chat-mode session in app UI   | `sc layout run ... --ui chat`                                      |
+| Follow-up to an existing agent         | `sc agent send`                                                    |
+| Wait for completion and collect output | `sc agent wait`, then `sc agent read`                              |
+| Redirect a running agent               | `sc agent interrupt`, then `sc agent send`                         |
+| Parallel fan-out/fan-in                | `sc team run`                                                      |
+| Workbench Pi role                      | `launch_agent` with explicit role; durable report/todo monitoring  |
+| Standard code review                   | `launch_review_agent` with Claude Code / `claude-fable-5` / `high` |
+| Raw sequential worker then reviewer    | launch, wait/read, then launch reviewer                            |
+| Layout-only broadcast/prefill/dry run  | `sc layout send`                                                   |
+| Stable names or broadcasts             | `sc agents label`, `sc agents group`                               |
+| Shared machine-readable coordination   | `sc coordination-state`                                            |
+| App-managed worktree                   | `sc worktree`                                                      |
+| In-app review thread                   | `sc worktree review-*`                                             |
+| Workspace/sidebar management           | `sc workspace`, `sc section`                                       |
 
 Do not launch a replacement agent for a follow-up to an existing target.
 

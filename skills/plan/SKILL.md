@@ -28,7 +28,7 @@ Before the first SC mutation:
 1. Read `~/.pi/agent/skills/superconductor/SKILL.md` and its `references/orchestration.md` completely. For exact `/plan`, also read `references/worktrees-and-reviews.md` completely.
 2. Run `sc instructions orchestration` and `sc instructions layout`. For exact `/plan`, also run `sc instructions review`.
 3. Run `command -v sc`, `sc layout capabilities --output json`, `sc layout views --worktree "$PWD" --output json`, `sc agents list --worktree "$PWD" --output json`, and `sc chat providers --json`.
-4. Verify the requested launch shape, provider, model, UI mode, structured-read support, and reasoning level from live output. For exact `/plan`, verify the review checklist, diff, list/get, add, reply, and status commands from current help.
+4. Verify the requested launch shape, provider, model, UI mode, structured-read support, and reasoning level from live output. For exact `/plan`, specifically require Claude Code provider `claude`, model `claude-fable-5`, reasoning `high`, structured read, and the review checklist, diff, list/get, add, reply, and status commands from current help.
 
 If SC or a requested capability is unavailable, state the exact limitation. Do not silently switch providers or orchestration mechanisms. Planning can continue in the current chat, but do not promise automatic SC execution that cannot run.
 
@@ -292,16 +292,28 @@ A successful launch/send, an idle target, or a confident chat response is never 
 
 ## Final Review
 
-After all implementation todos are durably done, launch one labeled terminal-mode Pi reviewer sequentially with `launch_agent({role: "reviewer", ...})`. Its prompt must supply the exact run ID, label, plan path, relevant todo IDs, worker artifact paths, and `artifacts/<reviewer-label>/review.md`, and require `~/.pi/agent/skills/review/SKILL.md`. Do not launch the reviewer concurrently with work it must assess. Await the automatic reviewer completion message; do not call `wait_for_agent` while its background watcher is healthy.
+After all implementation todos are durably done, launch one labeled **Claude Code / Fable 5** reviewer sequentially with:
 
-When an ordinary (non-`/plan`) review explicitly requests Claude Code or another external provider, use `launch_review_agent` instead of raw `sc layout run`. Workbench appends the read-only SC-review contract, tracks the reviewer in the Agents panel, accepts neither idle nor terminal prose as completion, verifies a nonce-bound final SC review comment, and writes `artifacts/<reviewer-label>/review.md` from the tagged comments. Exact `/plan` retains the Pi reviewer above because its full Workbench reconciliation contract is broader.
+```text
+launch_review_agent({
+  label: "RUN_ID-reviewer-claude",
+  provider: "claude",
+  model: "claude-fable-5",
+  reasoning: "high",
+  prompt: "<complete final-review prompt>",
+})
+```
+
+This is the standard reviewer for exact `/plan` and ordinary Workbench review workflows. Before launch, verify from live SC capabilities/providers that `claude`, structured read, `claude-fable-5`, and `high` reasoning are available. If any is unavailable, report the exact limitation; do not silently substitute Pi or another model.
+
+The prompt must supply the exact run ID and run root, `plan.md`, relevant todo IDs, every worker/fix artifact path and commit SHA, the current diff scope, and the full reconciliation requirements below. Do not launch the reviewer concurrently with work it must assess. Workbench tracks it in the Agents panel, accepts neither idle nor terminal prose as completion, verifies a provider-authored nonce-bound final SC comment, and generates `artifacts/<reviewer-label>/review.md` from its tagged comments. Await that automatic completion message; do not poll or read the reviewer while its watcher is healthy.
 
 For every exact `/plan` run, state this launch contract explicitly:
 
 ```text
-Review mode: Workbench + in-app SC review.
+Review mode: Claude Code / Fable 5 through Workbench + in-app SC review.
 The human invoked /plan; this workflow includes the run's built-in final review lifecycle.
-Read the supplied Workbench plan, todos, and worker artifacts; reconcile SC review state; write the required review artifact; do not fix code or launch agents.
+Read the supplied Workbench run root, plan, todos, worker artifacts, commits, and current diff; reconcile SC review state; publish the required tagged comments and final marker; do not fix code or launch agents.
 ```
 
 Artifact-only final review is not valid for `/plan`. For another planning flow, use SC review when the requested outcome includes in-app review; otherwise retain artifact-only review.
@@ -317,12 +329,12 @@ In SC-review mode, the reviewer must:
    - add each new actionable finding with priority and Workbench run ID at the relevant file/line anchor;
    - when no actionable finding remains, add one file-anchored entry whose body starts `[APPROVED]` and includes the run ID and concise verification.
 5. Re-run `review-list` and `review-get` for every replied-to, resolved, or newly added ID.
-6. Only after SC verification, write `artifacts/<reviewer-label>/review.md` with initial open IDs/classifications, replies, resolutions, published IDs, verified states, remaining actionable IDs, commands/results, and verdict.
+6. Only after SC verification, publish the nonce-bound final comment with initial open IDs/classifications, replies, resolutions, published finding IDs, verified states, remaining actionable IDs, commands/results, and verdict. Workbench then generates `artifacts/<reviewer-label>/review.md` from the verified tagged comments.
 
 When the automatic reviewer result arrives, check it for target errors and read the durable review artifact. A review response, idle target, or SC comment without that artifact is incomplete. In SC-review mode, independently repeat the raw `review-list`/`review-get` verification and require Workbench and SC evidence to agree.
 
 - `APPROVED`: continue only when the artifact exists, no actionable comment remains open, and the current run has a verified `[APPROVED]` entry. An open approval entry or unrelated historical comment is not itself an actionable finding. Leave approval entries open during review; the conditional post-commit reconciliation below resolves them only after a requested commit succeeds.
-- `NEEDS CHANGES`: turn actionable P0/P1 findings into self-contained dependent Workbench todos, run workers sequentially, then send the existing reviewer a follow-up for re-review. It must verify fixes, reply to and resolve only addressed applicable comments, leave unresolved findings open, publish the refreshed verdict, and rewrite the artifact with current IDs/states. Repeat wait → read → artifact and SC verification. Handle P2 only when required by ISC or clearly worth the scoped effort; do not expand scope for P3 polish.
+- `NEEDS CHANGES`: turn actionable P0/P1 findings into self-contained dependent Workbench todos and run workers sequentially. Then launch a new Claude Code / Fable 5 re-review with a unique retry label. Its prompt must name the prior finding IDs, verify fixes, reply to and resolve only addressed applicable comments, leave unresolved findings open, and publish a refreshed nonce-bound verdict. Repeat durable artifact and SC verification. Handle P2 only when required by ISC or clearly worth the scoped effort; do not expand scope for P3 polish.
 
 ## Post-Approval Commit Reconciliation
 

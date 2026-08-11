@@ -71,7 +71,7 @@ report_to_parent({ status: "done", summary: "TODO-001 is verified and committed"
 launch_review_agent({ label, provider, prompt, model?, reasoning? })
 ```
 
-Launches a read-only external-provider reviewer such as Claude Code and tracks it in the same Agents panel. Workbench appends the full SC review-command contract plus a random per-launch completion nonce. Every finding must be published as a tagged, file-anchored `sc worktree review-add` comment. Approval or needs-changes must end with one final tagged comment containing the nonce. Terminal prose and idle are never accepted.
+Launches a read-only external-provider reviewer and tracks it in the same Agents panel. The standard `/plan` and direct-review workflows select Claude Code with `claude-fable-5` and `high` reasoning after live capability verification. Workbench appends the run ID/root, Workbench artifact-reading requirements, full SC review-command contract, and a random per-launch completion nonce. Every finding must be published as a tagged, file-anchored `sc worktree review-add` comment. Approval or needs-changes must end with one final tagged comment containing the nonce and reconciliation evidence. Terminal prose and idle are never accepted.
 
 When the reviewer becomes idle, Workbench reads SC review state from the monitored worktree, verifies the provider-authored nonce-bound final comment against one of two exact verdict prefixes, collects the reviewer's tagged comments, and writes `artifacts/<label>/review.md` automatically before waking the coordinator. Marker quotations, wrong authors, and malformed verdict comments cannot complete the review. A reviewer that idles without the marker remains waiting and eventually produces a needs-input notice, not a false completion.
 
