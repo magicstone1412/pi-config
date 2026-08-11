@@ -124,6 +124,7 @@ Artifact paths reject reserved root names regardless of case and reject existing
 
 ## Commands
 
+- `/handoff` — open Pi's **Fork from Message** picker in a new Superconductor tab while leaving the parent open. Selecting an older user message creates a new session from the path before that message and restores the selected prompt in the editor, matching Pi's built-in `/fork` behavior. The fork launches in the same managed worktree and explicitly joins the same Workbench run under a new session and tab identity. Workbench runtime entries and agent monitors are not copied. If the parent has a claimed todo, the claim stays with the parent and the fork joins without a todo assignment.
 - `/runs` — browse and join repository runs.
 - `/todos` — browse and manage todos in the active run.
 

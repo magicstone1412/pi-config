@@ -6,7 +6,9 @@ import {
   DEFAULT_MAX_BYTES,
   DEFAULT_MAX_LINES,
   keyHint,
+  SessionManager,
   truncateHead,
+  UserMessageSelectorComponent,
   type ExtensionAPI,
   withFileMutationQueue,
 } from "@earendil-works/pi-coding-agent";
@@ -21,6 +23,14 @@ import {
   writeParentReport,
   type ParentReport,
 } from "./agent-reports.ts";
+import {
+  buildHandoffResumePrompt,
+  claimHandoffDescriptor,
+  createHandoffDescriptor,
+  createHandoffSession,
+  parseHandoffResumeArgs,
+  removePendingHandoff,
+} from "./handoff.ts";
 import {
   agentName,
   agentPanelName,
@@ -1690,6 +1700,193 @@ export default function workbenchExtension(pi: ExtensionAPI): void {
     },
     renderResult(result, { expanded }, theme) {
       return renderTodoResult(result, expanded, theme);
+    },
+  });
+
+  function handoffMessageText(content: unknown): string {
+    if (typeof content === "string") return content;
+    if (!Array.isArray(content)) return "";
+    return content
+      .filter((block): block is { type: "text"; text: string } =>
+        Boolean(
+          block &&
+          typeof block === "object" &&
+          (block as any).type === "text" &&
+          typeof (block as any).text === "string",
+        ),
+      )
+      .map((block) => block.text)
+      .join("\n");
+  }
+
+  async function selectHandoffMessage(
+    sourceSession: SessionManager,
+    ctx: any,
+  ): Promise<{ entryId: string; text: string } | undefined> {
+    const messages = sourceSession.getEntries().flatMap((entry) => {
+      if (entry.type !== "message" || entry.message.role !== "user") return [];
+      const text = handoffMessageText(entry.message.content);
+      return text ? [{ entryId: entry.id, text }] : [];
+    });
+    if (messages.length === 0) throw new Error("No user messages are available to fork from.");
+
+    const selectedId = await ctx.ui.custom<string | undefined>(
+      (tui: any, _theme: any, _kb: any, done: any) => {
+        const selector = new UserMessageSelectorComponent(
+          messages.map((message) => ({ id: message.entryId, text: message.text })),
+          (entryId: string) => done(entryId),
+          () => done(undefined),
+          messages[messages.length - 1].entryId,
+        );
+        return {
+          render: (width: number) => selector.render(width),
+          invalidate: () => selector.invalidate(),
+          handleInput: (data: string) => {
+            selector.getMessageList().handleInput(data);
+            tui.requestRender();
+          },
+        };
+      },
+    );
+    return messages.find((message) => message.entryId === selectedId);
+  }
+
+  async function resumeHandoff(
+    resume: { descriptorPath: string; token: string },
+    ctx: any,
+  ): Promise<void> {
+    const claim = await claimHandoffDescriptor(resume.descriptorPath, resume.token);
+    let childSessionFile: string | undefined;
+    try {
+      const descriptor = claim.descriptor;
+      const workspace = detectSuperconductorWorkspace();
+      if (!workspace) throw new Error("Handoff requires a Superconductor-managed Pi tab.");
+      if (path.resolve(workspace.scope.path) !== path.resolve(descriptor.worktreePath)) {
+        throw new Error("Handoff opened in a different Superconductor worktree.");
+      }
+      if (path.resolve(ctx.cwd) !== path.resolve(descriptor.worktreePath)) {
+        throw new Error("Handoff Pi session started in the wrong working directory.");
+      }
+
+      const run = await getRun(descriptor.projectPath, descriptor.runId);
+      if (
+        path.resolve(path.dirname(claim.originalPath)) !==
+        path.resolve(path.join(run.root, ".handoffs"))
+      ) {
+        throw new Error("Handoff descriptor does not belong to its recorded Workbench run.");
+      }
+
+      const sourceSession = SessionManager.open(descriptor.sourceSessionFile);
+      if (
+        sourceSession.getSessionId() !== descriptor.sourceSessionId ||
+        path.resolve(sourceSession.getCwd()) !== path.resolve(descriptor.worktreePath)
+      ) {
+        throw new Error("Handoff source session does not match its descriptor.");
+      }
+
+      const selected = await selectHandoffMessage(sourceSession, ctx);
+      if (!selected) {
+        await claim.complete();
+        ctx.ui.notify("Handoff cancelled.", "info");
+        return;
+      }
+
+      const child = await createHandoffSession(
+        sourceSession,
+        { leafId: selected.entryId, position: "before" },
+        new Date(),
+      );
+      childSessionFile = child.file;
+      const childSession = SessionManager.open(child.file);
+      const childContext = childSession.buildSessionContext();
+      const joined = await joinRun(descriptor.projectPath, descriptor.runId, {
+        sessionId: childSession.getSessionId(),
+        role: descriptor.role,
+        label: descriptor.label,
+        targetId: workspace.targetId,
+        model: childContext.model
+          ? `${childContext.model.provider}/${childContext.model.modelId}`
+          : undefined,
+        reasoning: childContext.thinkingLevel,
+      });
+      childSession.appendCustomEntry("workbench-run", joined.membership);
+
+      const switched = await ctx.switchSession(child.file, {
+        withSession: async (replacementCtx: any) => {
+          replacementCtx.ui.setEditorText(selected.text);
+          const assignmentNote = descriptor.parentHadTodo
+            ? " The parent retains its todo assignment; this fork joined the run without claiming it."
+            : "";
+          replacementCtx.ui.notify(`Fork ready in ${descriptor.runId}.${assignmentNote}`, "info");
+        },
+      });
+      if (switched.cancelled) throw new Error("Handoff session switch was cancelled.");
+      await claim.complete();
+    } catch (error) {
+      await claim.release();
+      await removePendingHandoff(undefined, childSessionFile);
+      throw error;
+    }
+  }
+
+  async function startHandoff(ctx: any): Promise<void> {
+    if (ctx.mode !== "tui") throw new Error("Handoff requires interactive TUI mode.");
+    const active = requireMembership();
+    const workspace = detectSuperconductorWorkspace();
+    if (!workspace) throw new Error("Handoff requires a Superconductor-managed Pi session.");
+    if (isCleanSession(ctx.sessionManager.getEntries())) {
+      throw new Error("There is no conversation to hand off.");
+    }
+    await ctx.waitForIdle();
+
+    const sourceSessionFile = ctx.sessionManager.getSessionFile();
+    const sourceSessionId = ctx.sessionManager.getSessionId();
+    if (!sourceSessionFile || !ctx.sessionManager.getLeafId()) {
+      throw new Error("Handoff requires a persisted Pi conversation.");
+    }
+
+    let descriptorPath: string | undefined;
+    try {
+      const label = `handoff-${randomUUID().slice(0, 8)}`;
+      const pending = await createHandoffDescriptor(active.root, {
+        sourceSessionFile,
+        sourceSessionId,
+        runId: active.runId,
+        projectPath: active.projectPath,
+        worktreePath: workspace.scope.path,
+        role: active.role,
+        label,
+        parentHadTodo: Boolean(active.todoId),
+      });
+      descriptorPath = pending.path;
+      const launched = await launchAgent(
+        scExec,
+        {
+          label,
+          provider: "pi",
+          prompt: buildHandoffResumePrompt(pending.path, pending.descriptor.token),
+        },
+        workspace.scope.path,
+      );
+      const target =
+        launched.identifiers.stableTargetId ?? launched.identifiers.selector ?? `label:${label}`;
+      ctx.ui.notify(`Opened Fork in a new tab (${target}).`, "info");
+    } catch (error) {
+      await removePendingHandoff(descriptorPath, undefined);
+      throw error;
+    }
+  }
+
+  pi.registerCommand("handoff", {
+    description: "Fork this session into a new SC tab and keep the parent open",
+    handler: async (args, ctx) => {
+      const resume = parseHandoffResumeArgs(args);
+      if (resume) {
+        await resumeHandoff(resume, ctx);
+        return;
+      }
+      if (args.trim()) throw new Error("Usage: /handoff");
+      await startHandoff(ctx);
     },
   });
 

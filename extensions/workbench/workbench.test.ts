@@ -14,6 +14,13 @@ import path from "node:path";
 import { listArtifacts, readArtifact, resolveArtifactPath, writeArtifact } from "./artifacts.ts";
 import { clearParentReport, readParentReport, writeParentReport } from "./agent-reports.ts";
 import {
+  buildHandoffResumePrompt,
+  claimHandoffDescriptor,
+  createHandoffDescriptor,
+  createHandoffSession,
+  parseHandoffResumeArgs,
+} from "./handoff.ts";
+import {
   agentName,
   agentPanelName,
   launchAgentResultText,
@@ -210,6 +217,144 @@ describe("automatic Superconductor workspace membership", () => {
     );
     expect(joined.membership.scope).toEqual(scope);
     expect(joined.membership.targetId).toBe("terminal:abc");
+  });
+});
+
+describe("session handoff", () => {
+  test("forks before the selected message without copying Workbench runtime state", async () => {
+    const root = await temporaryHistoryRoot();
+    const sessionDir = path.join(root, "sessions");
+    const sourceSessionFile = path.join(sessionDir, "source.jsonl");
+    const retainedCustomId = "custom-a";
+    const userId = "user-a";
+    const branch = [
+      {
+        type: "custom",
+        customType: "workbench-run",
+        data: { runId: "run-a" },
+        id: "workbench-run-a",
+        parentId: null,
+        timestamp: "2026-08-11T15:59:00.000Z",
+      },
+      {
+        type: "custom",
+        customType: "workbench-agent-monitor",
+        data: { action: "start" },
+        id: "monitor-a",
+        parentId: "workbench-run-a",
+        timestamp: "2026-08-11T15:59:01.000Z",
+      },
+      {
+        type: "custom",
+        customType: "other-extension",
+        data: { keep: true },
+        id: retainedCustomId,
+        parentId: "monitor-a",
+        timestamp: "2026-08-11T15:59:02.000Z",
+      },
+      {
+        type: "message",
+        id: userId,
+        parentId: retainedCustomId,
+        timestamp: "2026-08-11T15:59:03.000Z",
+        message: { role: "user", content: "Keep this prompt", timestamp: Date.now() },
+      },
+    ] as any;
+    const manager = {
+      getSessionFile: () => sourceSessionFile,
+      getLeafId: () => userId,
+      isPersisted: () => true,
+      getBranch: () => branch,
+      getSessionDir: () => sessionDir,
+      getHeader: () => ({ version: 3 }),
+      getCwd: () => projectRoot,
+    };
+
+    const child = await createHandoffSession(
+      manager,
+      { leafId: userId, position: "before" },
+      new Date("2026-08-11T16:00:00.000Z"),
+    );
+    const lines = (await readFile(child.file, "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+
+    expect(lines[0].parentSession).toBe(sourceSessionFile);
+    expect(lines[0].id).toBe(child.id);
+    expect(lines.slice(1).map((entry) => entry.customType ?? entry.message?.role)).toEqual([
+      "other-extension",
+    ]);
+    expect(lines[1].id).toBe(retainedCustomId);
+    expect(lines[1].parentId).toBeNull();
+  });
+
+  test("uses an expiring one-use descriptor and opaque resume prompt", async () => {
+    const historyRoot = await temporaryHistoryRoot();
+    const runRoot = path.join(historyRoot, "repo", "runs", "run-a");
+    const createdAt = new Date("2026-08-11T16:00:00.000Z");
+    const pending = await createHandoffDescriptor(
+      runRoot,
+      {
+        sourceSessionFile: "/tmp/source.jsonl",
+        sourceSessionId: "source-a",
+        runId: "run-a",
+        projectPath: projectRoot,
+        worktreePath: projectRoot,
+        role: "coordinator",
+        label: "handoff-child",
+        parentHadTodo: true,
+      },
+      createdAt,
+    );
+    const prompt = buildHandoffResumePrompt(pending.path, pending.descriptor.token);
+    const resume = parseHandoffResumeArgs(prompt.replace("/handoff ", ""));
+    expect(resume).toEqual({ descriptorPath: pending.path, token: pending.descriptor.token });
+
+    const claim = await claimHandoffDescriptor(resume!.descriptorPath, resume!.token, {
+      historyRoot,
+      now: new Date(createdAt.getTime() + 1_000),
+    });
+    expect(claim.descriptor.parentHadTodo).toBe(true);
+    await expect(
+      claimHandoffDescriptor(resume!.descriptorPath, resume!.token, { historyRoot }),
+    ).rejects.toThrow("already consumed");
+    await claim.release();
+
+    const reclaimed = await claimHandoffDescriptor(resume!.descriptorPath, resume!.token, {
+      historyRoot,
+      now: new Date(createdAt.getTime() + 2_000),
+    });
+    await reclaimed.complete();
+    await expect(
+      claimHandoffDescriptor(resume!.descriptorPath, resume!.token, { historyRoot }),
+    ).rejects.toThrow("already consumed");
+  });
+
+  test("rejects expired handoff descriptors", async () => {
+    const historyRoot = await temporaryHistoryRoot();
+    const runRoot = path.join(historyRoot, "repo", "runs", "run-a");
+    const createdAt = new Date("2026-08-11T16:00:00.000Z");
+    const pending = await createHandoffDescriptor(
+      runRoot,
+      {
+        sourceSessionFile: "/tmp/source.jsonl",
+        sourceSessionId: "source-a",
+        runId: "run-a",
+        projectPath: projectRoot,
+        worktreePath: projectRoot,
+        role: "coordinator",
+        label: "handoff-child",
+        parentHadTodo: false,
+      },
+      createdAt,
+    );
+    await expect(
+      claimHandoffDescriptor(pending.path, pending.descriptor.token, {
+        historyRoot,
+        now: new Date(createdAt.getTime() + 6 * 60_000),
+      }),
+    ).rejects.toThrow("expired");
   });
 });
 
