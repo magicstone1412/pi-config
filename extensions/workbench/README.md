@@ -42,34 +42,40 @@ Only the clean-session bootstrap uses Superconductor's managed-session environme
 
 ## Native SC execution tools
 
-Both native tools require active Workbench membership. They are focused execution primitives, not orchestration policy: callers still perform raw SC capability/model preflight and choose prompts, roles, verified models, sequencing, and durable completion criteria. Raw SC also remains necessary for teams, send/interrupt/stop, review commands, and unsupported launch topologies.
+The native launch tools require active Workbench membership. They are focused execution primitives, not orchestration policy: callers still perform raw SC capability/model preflight and choose prompts, roles, verified models, sequencing, and durable completion criteria. Raw SC remains necessary for teams, send/interrupt/stop, and unsupported launch topologies.
 
 ### `launch_agent`
 
 ```text
-launch_agent({ label, prompt, todoId?, model?, reasoning?, interactive? })
+launch_agent({ label, role, prompt, todoId?, model?, reasoning?, interactive? })
 ```
 
-Launches one labeled Pi terminal with `sc layout run tabs --provider pi --ui terminal --active keep` in Pi's current working directory. The prompt is passed directly as one argv value, including when multiline; no shell interpolation or temporary prompt file is used. Optional model and reasoning values must be verified by the coordinator before the call.
+Launches one labeled Pi terminal with `sc layout run tabs --provider pi --ui terminal --active keep` in Pi's current working directory. The prompt is passed directly as one argv value. Workbench appends an exact run/role/label/todo join handshake and requires a final `report_to_parent` call. Optional model and reasoning values must be verified before launch.
 
-Worker launches pass `todoId` (or use the deterministic `TODO-NNN` label segment). Before SC dispatch, Workbench atomically reserves that todo for the launch label. A second launch for the same todo is rejected while the reservation or worker claim exists. The matching worker consumes the reservation when it claims the todo; other labels cannot claim it. Force-recovery permits a replacement only under a new retry label, preserving an unambiguous attempt history.
+Worker launches pass `todoId` (or use the deterministic `TODO-NNN` label segment). Before SC dispatch, Workbench atomically reserves that todo for the launch label. A second launch for the same todo is rejected while the reservation or worker claim exists. The matching worker consumes the reservation when it claims the todo; other labels cannot claim it. Force-recovery permits a replacement only under a new retry label.
 
-The launch tool returns immediately with a compact green `started` result and terminates that coordinator turn. An extension-owned background watcher first requires positive evidence that the new target entered `working`; it never accepts the transient idle state between terminal creation and prompt startup as completion. After startup, it waits in internal 120-second windows, updates the live panel, and reads the target when it becomes idle. Completion or failure is delivered later as a separate themed message block and automatically starts the coordinator's next turn. The coordinator does not call another tool, poll, or inspect the child session while monitoring is healthy.
+The tool returns immediately and terminates the coordinator turn. The background watcher first requires positive `working` evidence, then polls durable parent reports, todo state, and runtime state. Runtime idle—brief or sustained—is only `waiting`; it never marks an `open` or `in_progress` worker failed. A premature `done` report also remains waiting until the assigned todo is durably `done`. A completed todo may finish the monitor even if the worker's final report is lost, because todo completion already requires the claimed session, verification, and an existing artifact. Blocked/failed todos produce a needs-input handoff rather than a false runtime failure.
 
-For worker launches, runtime idle is still insufficient: the watcher renders a green completion only when the assigned Workbench todo is durably `done`. An idle worker with an `open`, `in_progress`, `blocked`, or `failed` todo produces a failure block and explicitly prevents dependent work from launching. The automatically awakened coordinator must then verify the Workbench artifact and focused commit before advancing.
-
-### Interactive agents and `report_to_parent`
-
-Set `interactive: true` for long-lived agents where the user works directly in the child tab. These agents do not complete when they become idle; idle simply means they are waiting for another user message. The launch prompt first requires the child to join the parent's exact Workbench run with role `interactive` and its launch label; this handshake makes `report_to_parent` available and prevents ambient workspace membership from being mistaken for delegated identity. The child then uses:
+Every labeled Pi delegate uses:
 
 ```text
-report_to_parent({ status: "needs_input", summary: "Choose A or B" })
-report_to_parent({ status: "done", summary: "Final design approved" })
+report_to_parent({ status: "needs_input", summary: "Blocked on an API choice" })
+report_to_parent({ status: "done", summary: "TODO-001 is verified and committed" })
 ```
 
-`needs_input` creates an amber message block in the parent, wakes the coordinator, keeps the child alive, and leaves the panel row in `waiting`. `done` verifies any assigned todo, creates the final green parent block, removes the panel row, and gracefully closes the child session. Reports are atomic, durable Workbench state rather than transient terminal text.
+`needs_input` wakes the parent, keeps the child available, and leaves the row waiting. `done` is downgraded to `needs_input` when an assigned todo is not yet durably done. A valid `done` creates the final green parent block and removes the row, but leaves the finished agent pane open for inspection. Set `interactive: true` for user-driven sessions whose ordinary idle periods are expected; their idle state never generates timeout-style needs-input notices.
 
-Active monitor records are persisted in the parent Pi session. Reload aborts the old in-memory watcher and the new extension instance restores it, including interactive report polling, panel metrics, and the original elapsed start time.
+### `launch_review_agent`
+
+```text
+launch_review_agent({ label, provider, prompt, model?, reasoning? })
+```
+
+Launches a read-only external-provider reviewer such as Claude Code and tracks it in the same Agents panel. Workbench appends the full SC review-command contract plus a random per-launch completion nonce. Every finding must be published as a tagged, file-anchored `sc worktree review-add` comment. Approval or needs-changes must end with one final tagged comment containing the nonce. Terminal prose and idle are never accepted.
+
+When the reviewer becomes idle, Workbench reads SC review state from the monitored worktree, verifies the provider-authored nonce-bound final comment against one of two exact verdict prefixes, collects the reviewer's tagged comments, and writes `artifacts/<label>/review.md` automatically before waking the coordinator. Marker quotations, wrong authors, and malformed verdict comments cannot complete the review. A reviewer that idles without the marker remains waiting and eventually produces a needs-input notice, not a false completion.
+
+Active monitor records use a versioned durable schema in the parent Pi session. Reload restores the completion contract, panel state, metrics when available, and original elapsed start time.
 
 ### `wait_for_agent`
 
@@ -84,8 +90,8 @@ A structured target/provider error becomes a delegated-agent failure. Control-pl
 A coordinator's supported sequential path is therefore:
 
 ```text
-launch_agent({ label: "RUN_ID-worker-TODO-001", todoId: "TODO-001", prompt: "<complete role prompt>" })
-# Background watcher delivers a new completion/failure message and wakes the coordinator.
+launch_agent({ label: "RUN_ID-worker-TODO-001", role: "worker", todoId: "TODO-001", prompt: "<complete role prompt>" })
+# Background watcher waits through transient idle and wakes on durable completion/input/failure.
 todo({ action: "get", id: "TODO-001" })
 read_artifact({ path: "artifacts/RUN_ID-worker-TODO-001/result.md" })
 ```
@@ -94,14 +100,15 @@ The coordinator advances only after the todo and artifact provide the required d
 
 ## Live agent panel
 
-Workbench renders launched and monitored agents in a bordered panel above the editor. Each row shows a compact worker/scout/reviewer identity and elapsed time. Once the child session records model activity, the right side shows real assistant-turn count and accumulated provider cost (including nested tool, compaction, and branch-summary usage) instead of a synthetic check counter. Starting, delegated failure, and monitoring failure states remain explicit.
+Workbench renders launched and monitored Pi and external-provider agents in a bordered panel above the editor. Each row shows a compact worker/scout/reviewer identity, active runtime, and running/waiting/failure state. Waiting rows are amber and their active-runtime clock freezes until work resumes. When a Pi JSONL session is available, the right side also shows real assistant-turn count and accumulated provider cost; providers without a Pi JSONL session still receive full lifecycle tracking.
 
-The panel incrementally reads only newly appended JSONL session entries once per second. When monitoring an already-running target after reload, Workbench resolves its Pi session path from one bounded runtime read so metrics do not depend on the original launch response remaining in memory. The panel supports multiple tracked agents, preserves failed rows while the user decides how to proceed, removes completed agents, and clears when no agents remain. Rendering is width-bounded for narrow terminals and uses the active Pi theme.
+The panel incrementally reads only newly appended JSONL entries once per second. It supports multiple tracked agents, keeps ordinary idle amber as waiting, preserves only real delegated/monitoring failures while the user decides how to proceed, removes completed agents, and clears when no agents remain. Rendering is width-bounded for narrow terminals and uses the active Pi theme.
 
 ## Durable Workbench tools
 
 - `run_workspace` — create, join, inspect, list, or update runs.
-- `report_to_parent` — send `needs_input` or final `done` from an interactive delegated agent.
+- `report_to_parent` — durably send `needs_input` or final `done` from any labeled delegated Pi agent.
+- `launch_review_agent` — launch an external-provider reviewer, verify SC review comments, and generate its Workbench review artifact.
 - `write_artifact` — write or append `plan.md` and files beneath the run root.
 - `read_artifact` — read a run file with line slicing and output limits.
 - `list_artifacts` — list plans and agent files, excluding internal state and todos.

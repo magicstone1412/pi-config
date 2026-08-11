@@ -12,7 +12,7 @@ Review the requested changes, report evidence-based findings, and stop. Do not m
 When a run ID, role, and label are supplied, join first:
 
 ```typescript
-run_workspace({ action: "join", runId: "<run-id>", role: "reviewer", label: "<label>" })
+run_workspace({ action: "join", runId: "<run-id>", role: "reviewer", label: "<label>" });
 ```
 
 In an already joined Pi session, use the active run. Read `plan.md`, relevant todo records, worker result artifacts, and the changed code before assessing it.
@@ -58,7 +58,7 @@ Always flag concrete security issues such as auth bypass, data exposure, unsanit
 Write this exact path convention:
 
 ```typescript
-write_artifact({ path: "artifacts/<label>/review.md", content: "..." })
+write_artifact({ path: "artifacts/<label>/review.md", content: "..." });
 ```
 
 ```markdown
@@ -68,26 +68,34 @@ write_artifact({ path: "artifacts/<label>/review.md", content: "..." })
 **Verdict:** APPROVED | NEEDS CHANGES
 
 ## Summary
+
 [1-2 sentences]
 
 ## Verification
+
 - `<command>` — [result]
 
 ## Findings
+
 ### [P1] Title
+
 **File:** `path/to/file.ts:123`
 **Issue:** [specific problem]
 **Impact:** [why it matters]
 **Suggested Fix:** [concrete fix]
 
 ## What's Good
+
 - [specific positive observations]
 
 ## SC Review (SC-review mode only)
+
 - Existing open comments inspected and classified: [IDs, initial states, classifications]
 - Replies and resolutions: [IDs, evidence, and separately verified resulting states]
 - Published findings or approval: [new IDs and verified states]
 - Remaining open actionable comments: [IDs or none]
 ```
 
-If there are no findings, set the verdict to `APPROVED` and keep the report short. In SC-review mode, the artifact must record all relevant SC comment IDs, classifications, and states verified with `review-list`/`review-get`. The Workbench artifact is required even when the SC lifecycle succeeds; artifact-only review cannot complete an exact `/plan` run. In the final response, give the artifact path and verdict.
+If there are no findings, set the verdict to `APPROVED` and keep the report short. In SC-review mode, the artifact must record all relevant SC comment IDs, classifications, and states verified with `review-list`/`review-get`. The Workbench artifact is required even when the SC lifecycle succeeds; artifact-only review cannot complete an exact `/plan` run.
+
+When the launch contract requires durable parent reporting, call `report_to_parent({status: "done", ...})` only after the review artifact and required SC comments are verified, and before the final response. A terminal verdict or runtime idle is not a handoff.

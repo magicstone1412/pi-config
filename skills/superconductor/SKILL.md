@@ -22,21 +22,21 @@ Use `sc` as the default control plane for super.engineering sessions, orchestrat
 
 Run the relevant built-in instruction command before the first mutation in that area:
 
-| Area | Command |
-|---|---|
-| Agents, teams, delegation | `sc instructions orchestration` |
-| Tabs, panes, views, layout | `sc instructions layout` |
-| Managed worktrees or branches | `sc instructions worktree` |
-| In-app review threads | `sc instructions review` |
+| Area                          | Command                         |
+| ----------------------------- | ------------------------------- |
+| Agents, teams, delegation     | `sc instructions orchestration` |
+| Tabs, panes, views, layout    | `sc instructions layout`        |
+| Managed worktrees or branches | `sc instructions worktree`      |
+| In-app review threads         | `sc instructions review`        |
 
 Use `sc help <command>` immediately before uncommon or destructive operations. Prefer current help over remembered syntax.
 
 Load references conditionally:
 
-| Requested outcome | Read |
-|---|---|
-| Launch, control, read, coordinate, or close agents/chats/layouts | [references/orchestration.md](references/orchestration.md) |
-| Create/manage worktrees or in-app review threads | [references/worktrees-and-reviews.md](references/worktrees-and-reviews.md) |
+| Requested outcome                                                | Read                                                                       |
+| ---------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| Launch, control, read, coordinate, or close agents/chats/layouts | [references/orchestration.md](references/orchestration.md)                 |
+| Create/manage worktrees or in-app review threads                 | [references/worktrees-and-reviews.md](references/worktrees-and-reviews.md) |
 
 ## Step 3: Inspect capabilities and targets
 
@@ -65,22 +65,24 @@ sc chat providers --json
 
 For delegated Pi sessions, use `--provider pi --ui terminal` by default. Use chat mode only for an explicitly requested app UI outcome.
 
-| Outcome | Use |
-|---|---|
-| Initial visible agent session | `sc layout run views|tabs|panes` |
-| Default delegated Pi session | `sc layout run ... --provider pi --ui terminal` |
-| Explicit chat-mode session in app UI | `sc layout run ... --ui chat` |
-| Follow-up to an existing agent | `sc agent send` |
-| Wait for completion and collect output | `sc agent wait`, then `sc agent read` |
-| Redirect a running agent | `sc agent interrupt`, then `sc agent send` |
-| Parallel fan-out/fan-in | `sc team run` |
-| Sequential worker then reviewer | launch, wait/read, then launch reviewer |
-| Layout-only broadcast/prefill/dry run | `sc layout send` |
-| Stable names or broadcasts | `sc agents label`, `sc agents group` |
-| Shared machine-readable coordination | `sc coordination-state` |
-| App-managed worktree | `sc worktree` |
-| In-app review thread | `sc worktree review-*` |
-| Workspace/sidebar management | `sc workspace`, `sc section` |
+| Outcome                                | Use                                                               |
+| -------------------------------------- | ----------------------------------------------------------------- | ---- | ------ |
+| Initial visible agent session          | `sc layout run views                                              | tabs | panes` |
+| Default delegated Pi session           | `sc layout run ... --provider pi --ui terminal`                   |
+| Explicit chat-mode session in app UI   | `sc layout run ... --ui chat`                                     |
+| Follow-up to an existing agent         | `sc agent send`                                                   |
+| Wait for completion and collect output | `sc agent wait`, then `sc agent read`                             |
+| Redirect a running agent               | `sc agent interrupt`, then `sc agent send`                        |
+| Parallel fan-out/fan-in                | `sc team run`                                                     |
+| Workbench Pi role                      | `launch_agent` with explicit role; durable report/todo monitoring |
+| External-provider code review          | `launch_review_agent`; nonce-bound SC comments + review artifact  |
+| Raw sequential worker then reviewer    | launch, wait/read, then launch reviewer                           |
+| Layout-only broadcast/prefill/dry run  | `sc layout send`                                                  |
+| Stable names or broadcasts             | `sc agents label`, `sc agents group`                              |
+| Shared machine-readable coordination   | `sc coordination-state`                                           |
+| App-managed worktree                   | `sc worktree`                                                     |
+| In-app review thread                   | `sc worktree review-*`                                            |
+| Workspace/sidebar management           | `sc workspace`, `sc section`                                      |
 
 Do not launch a replacement agent for a follow-up to an existing target.
 
@@ -98,7 +100,7 @@ Do not launch a replacement agent for a follow-up to an existing target.
 
 ## Step 6: Wait, read, and verify
 
-After launching or sending work:
+For raw SC launches or sends:
 
 1. Capture the returned selector, stable target id, conversation/session id, and label.
 2. Wait for idle with a bounded timeout.
@@ -106,7 +108,7 @@ After launching or sending work:
 4. Check for `target_error`, provider failure, incomplete snapshots, or missing content.
 5. Relay only output actually returned by `sc` or the provider session.
 
-A successful `run` or `send` confirms launch/queue admission, not turn completion. `--wait-until-idle` waits for availability before dispatch; it does not collect the resulting answer.
+A successful raw `run` or `send` confirms launch/queue admission, not turn completion. `--wait-until-idle` waits for availability before dispatch; it does not collect the resulting answer. Do not apply this raw idle protocol to Workbench-native launches: `launch_agent` waits for durable parent-report/todo agreement, and `launch_review_agent` waits for a nonce-bound final SC review comment and generated review artifact. In both cases, runtime idle is only a waiting state.
 
 ## Step 7: Clean up when requested
 

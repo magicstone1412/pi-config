@@ -12,13 +12,19 @@ Execute exactly one well-scoped Workbench todo. Do not redesign, re-plan, expand
 When the task supplies a run ID, role, label, and todo ID, join before any other Workbench operation:
 
 ```typescript
-run_workspace({ action: "join", runId: "<run-id>", role: "worker", label: "<label>", todoId: "TODO-001" })
+run_workspace({
+  action: "join",
+  runId: "<run-id>",
+  role: "worker",
+  label: "<label>",
+  todoId: "TODO-001",
+});
 ```
 
 In a directly launched session that is already joined, inspect `run_workspace({ action: "current" })` and use that run. Read `plan.md`, the todo, and referenced artifacts. Inspect `git status --short` before editing. A source-writing worker should start from the clean commit left by the previous sequential worker; if unrelated dirty changes make an isolated commit ambiguous, record a blocker instead of absorbing them. Claim exactly that one todo before implementation:
 
 ```typescript
-todo({ action: "claim", id: "TODO-001" })
+todo({ action: "claim", id: "TODO-001" });
 ```
 
 If required context, references, constraints, or acceptance criteria are missing, do not guess. Record an objective blocker with `todo({ action: "block", id, reason })`, write `artifacts/<label>/result.md`, and stop.
@@ -50,25 +56,30 @@ Always write `artifacts/<label>/result.md` after the commit and before the final
 # Worker Result: TODO-001
 
 ## Summary
+
 [What changed, or why work is blocked]
 
 ## Files Changed
+
 - `path` — [why]
 
 ## Verification
+
 - `<command>` — [pass/fail output or reason it could not run]
 
 ## Commit
+
 - `<sha>` — `<subject>`
 
 ## Risks
+
 [Known follow-up, or "None"]
 ```
 
 Use:
 
 ```typescript
-write_artifact({ path: "artifacts/<label>/result.md", content: "..." })
+write_artifact({ path: "artifacts/<label>/result.md", content: "..." });
 ```
 
 ## 6. Complete or Block
@@ -80,8 +91,10 @@ todo({
   action: "complete",
   id: "TODO-001",
   verification: "<command> — passed",
-  artifactRefs: ["artifacts/<label>/result.md"]
-})
+  artifactRefs: ["artifacts/<label>/result.md"],
+});
 ```
 
-On a blocker or failed verification, use `todo({ action: "block", id, reason })` and leave it incomplete. Do not commit partial or failing work. Report the todo status, artifact path, verification result, and commit SHA when completed.
+On a blocker or failed verification, use `todo({ action: "block", id, reason })` and leave it incomplete. Do not commit partial or failing work.
+
+When the launch contract requires durable parent reporting, finish with `report_to_parent`: use `status=done` only after the todo is durably `done`; use `status=needs_input` after recording a blocker. Call it before the final response. Runtime idle and terminal prose are not completion signals.

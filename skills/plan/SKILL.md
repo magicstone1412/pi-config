@@ -70,12 +70,15 @@ Then draft compact, binary Ideal State Criteria (ISC):
 
 ```markdown
 ### Core Functionality
+
 - [ ] ISC-1: [atomic yes/no criterion]
 
 ### Edge Cases
+
 - [ ] ISC-2: [atomic yes/no criterion]
 
 ### Anti-Criteria
+
 - [ ] ISC-A-1: No [thing that must not happen]
 ```
 
@@ -104,8 +107,8 @@ run_workspace({
   action: "create",
   title: "<short plan title>",
   role: "coordinator",
-  projectPath: "<target repository when it differs from the current directory>"
-})
+  projectPath: "<target repository when it differs from the current directory>",
+});
 ```
 
 Capture the returned run ID. Creation joins this session; do not create a second coordinator or run for the same plan. After inspecting the current SC target, label it `<run-id>-coordinator` so its runtime identity is run-scoped.
@@ -122,13 +125,21 @@ Write the selected plan with `write_artifact({ path: "plan.md", ... })`:
 **Approach:** [selected approach]
 
 ## Intent
+
 ## Behavior (happy path and edge cases)
+
 ## Scope (in and out)
+
 ## Effort and Quality
+
 ## Ideal State Criteria
+
 ## Architecture
+
 ## Key Decisions
+
 ## Assumptions and Premortem
+
 ## Todo Plan
 ```
 
@@ -186,6 +197,7 @@ For the supported individual Pi terminal shape, prefer the Workbench-native tool
 ```text
 launch_agent({
   label: "RUN_ID-worker-TODO-001",
+  role: "worker",
   todoId: "TODO-001",
   prompt: "<complete multiline role prompt>",
   model: "VERIFIED_MODEL_ID",
@@ -268,9 +280,10 @@ For each todo:
    After verification passes, read the commit skill, create one focused commit for this todo, and do not push.
    ```
 
-   Pass `todoId: "TODO-NNN"` to `launch_agent`; Workbench reserves it atomically before dispatch. If recovery is genuinely required, force-release the stale claim/reservation and use a new retry label such as `<worker-label>-retry-2`.
-3. `launch_agent` returns immediately and owns background monitoring. End the turn or continue only independent work. Do not call `wait_for_agent`, poll, sleep, or inspect the child session. The Agents panel shows live progress; completion or failure arrives automatically as a separate message and starts a new coordinator turn.
-4. If the automatic result reports a delegated-agent or monitoring failure, stop orchestration, explain whether the worker may still be running, and ask the user whether to inspect, retry monitoring, retry the task, or stop. Never relaunch automatically. Use `wait_for_agent` only if monitoring failed or was interrupted and the user explicitly chose to retry monitoring.
+   Pass `role: "worker"` and `todoId: "TODO-NNN"` to `launch_agent`; Workbench reserves the todo atomically and appends the exact durable parent-report handshake. If recovery is genuinely required, force-release the stale claim/reservation and use a new retry label such as `<worker-label>-retry-2`.
+
+3. `launch_agent` returns immediately and owns background monitoring. End the turn or continue only independent work. Do not call `wait_for_agent`, poll, sleep, or inspect the child session. The Agents panel shows live progress. Transient or sustained runtime idle is only `waiting`; completion requires a `report_to_parent` handoff whose todo state agrees, or an independently durable `done` todo with its required artifact.
+4. A waiting/needs-input message is not failure and never authorizes replacement. If the automatic result reports a real delegated-agent or monitoring failure, stop orchestration, explain whether the worker may still be running, and ask the user whether to inspect, retry monitoring, retry the task, or stop. Never relaunch automatically. Use `wait_for_agent` only if monitoring failed or was interrupted and the user explicitly chose to retry monitoring.
 5. After the automatic completion message arrives, read the todo with `todo({ action: "get", id: "TODO-NNN" })` and read `artifacts/<worker-label>/result.md`.
 6. Verify the recorded commit SHA with `git show --stat --oneline <sha>` and confirm it contains only the todo's scoped changes.
 7. Advance only when the todo is durably `done`, the result artifact exists, its verification evidence satisfies the acceptance criteria, and its focused commit is verified.
@@ -279,7 +292,9 @@ A successful launch/send, an idle target, or a confident chat response is never 
 
 ## Final Review
 
-After all implementation todos are durably done, launch one labeled terminal-mode Pi reviewer sequentially with `launch_agent`. Its prompt must supply the exact run ID, role `reviewer`, label, plan path, relevant todo IDs, worker artifact paths, and `artifacts/<reviewer-label>/review.md`, and require `~/.pi/agent/skills/review/SKILL.md`. Do not launch the reviewer concurrently with work it must assess. Await the automatic reviewer completion message; do not call `wait_for_agent` while its background watcher is healthy.
+After all implementation todos are durably done, launch one labeled terminal-mode Pi reviewer sequentially with `launch_agent({role: "reviewer", ...})`. Its prompt must supply the exact run ID, label, plan path, relevant todo IDs, worker artifact paths, and `artifacts/<reviewer-label>/review.md`, and require `~/.pi/agent/skills/review/SKILL.md`. Do not launch the reviewer concurrently with work it must assess. Await the automatic reviewer completion message; do not call `wait_for_agent` while its background watcher is healthy.
+
+When an ordinary (non-`/plan`) review explicitly requests Claude Code or another external provider, use `launch_review_agent` instead of raw `sc layout run`. Workbench appends the read-only SC-review contract, tracks the reviewer in the Agents panel, accepts neither idle nor terminal prose as completion, verifies a nonce-bound final SC review comment, and writes `artifacts/<reviewer-label>/review.md` from the tagged comments. Exact `/plan` retains the Pi reviewer above because its full Workbench reconciliation contract is broader.
 
 For every exact `/plan` run, state this launch contract explicitly:
 
@@ -353,7 +368,7 @@ Before reporting completion:
 1. Read `plan.md` and confirm the selected approach and ISC are represented.
 2. List todos and confirm every required implementation/fix todo is durably `done` with dependencies satisfied.
 3. Read every expected scout, worker, and reviewer artifact.
-4. Confirm every SC launch/send was followed by wait and read, with no unresolved target/provider errors.
+4. Confirm every raw SC launch/send was followed by wait and read, and every Workbench-native launch produced its required durable parent report/todo or nonce-bound SC review marker, with no unresolved target/provider errors.
 5. Run the plan’s targeted tests/build/typecheck and inspect `git status --short` plus the relevant diff.
 6. Confirm the final Workbench review verdict. For exact `/plan` and any other SC-review flow, re-run `review-list` and `review-get` for every relevant ID, confirm the final states match the review artifact, confirm no actionable comments remain open for an `APPROVED` verdict, and verify the current run's `[APPROVED]` entry. SC state without the Workbench artifact is incomplete, and artifact-only review cannot complete `/plan`.
 7. Verify every worker commit SHA, read `artifacts/<coordinator-label>/post-commit-review-cleanup.md`, re-run `review-list`/`review-get`, and confirm every open `[APPROVED]` entry was resolved only after the worker commits while nonapproval threads were left unchanged.

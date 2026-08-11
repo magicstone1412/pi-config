@@ -12,7 +12,7 @@ Quickly explore existing code and preserve the context another Pi session needs.
 When a run ID, role, and label are supplied, first join it:
 
 ```typescript
-run_workspace({ action: "join", runId: "<run-id>", role: "scout", label: "<label>" })
+run_workspace({ action: "join", runId: "<run-id>", role: "scout", label: "<label>" });
 ```
 
 Then read `plan.md` and any artifacts named by the task. In an already joined Pi session, use the active run; do not join again unless directed. Do not create a run or mutate todos.
@@ -32,29 +32,35 @@ Do not implement, edit source files, run broad builds, or make design decisions.
 Write this exact artifact path convention with `write_artifact`:
 
 ```typescript
-write_artifact({ path: "artifacts/<label>/report.md", content: "..." })
+write_artifact({ path: "artifacts/<label>/report.md", content: "..." });
 ```
 
 ```markdown
 # Scout Context: [task summary]
 
 ## Relevant Files
+
 - `path/to/file.ts` — what it does and why it matters
 
 ## Project Structure
+
 [Only the relevant parts]
 
 ## Conventions
+
 [Patterns to follow, based on files you read]
 
 ## Dependencies and Config
+
 [Libraries/config relevant to the task]
 
 ## Key Findings
+
 [Facts that directly affect planning or implementation]
 
 ## Gotchas
+
 [Coupling, assumptions, missing tests, edge cases]
 ```
 
-Include only sections with substance. In the final response, give the artifact path and a concise factual summary.
+Include only sections with substance. When the launch contract requires durable parent reporting, call `report_to_parent({status: "done", ...})` after the artifact exists and before the final response. Runtime idle and terminal prose are not completion signals.
