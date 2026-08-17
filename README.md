@@ -53,12 +53,14 @@ The workflow does not create worktrees or branches, arrange fixed panels, ship, 
 | `prompts/todos.md` | `/todos` |
 | `prompts/execute.md` | `/execute` |
 | `prompts/review.md` | `/review` |
+| `prompts/superconductor-setup.md` | `/superconductor-setup [requirements]` |
 | `skills/plan/` | Interactive planning and plan Markdown format |
 | `skills/write-todos/` | Worker-ready todo decomposition and format |
 | `skills/worker/` | One-todo implementation, verification, commit, and response contract |
 | `skills/review/` | Coordinator/team review roles and review Markdown format |
 | `skills/scout/` | Read-only repository reconnaissance |
 | `skills/superconductor/` | Central SC policy, syntax, and live-preflight guidance |
+| `skills/setup-superconductor-project/` | Repo-owned worktree setup and development-server configuration |
 | `skills/commit/` | Required procedure before every Git commit |
 | `extensions/execute-command/` | `execute_command` for self-invoked slash commands and steer messages |
 | `settings.json`, `models.json`, `mcp.json` | Pi configuration |
