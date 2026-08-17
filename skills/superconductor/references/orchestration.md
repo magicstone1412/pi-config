@@ -143,7 +143,6 @@ Prefer a team run for durable fan-out/fan-in across 1–8 roles:
 sc team run \
   --label researcher --provider pi --prompt 'Research the requested topic.' \
   --label reviewer --provider codex --prompt 'Independently review the requested topic.' \
-  --notify self \
   --worktree "$PWD" \
   --output json
 ```
@@ -155,7 +154,7 @@ sc team report --run RUN_ID --role ROLE --status done \
   --summary 'Concise result summary.' --worktree "$PWD" --output json
 ```
 
-Use `--result-file` for details beyond the 16 KiB report-summary limit. `sc team run` has no `--ui` flag, so use individually launched terminal-mode Pi sessions when the default UI must be selected. Inspect with `sc team status` or `sc team list`. A team run provides parallelism, not sequencing. Nonterminal runs become interrupted after an app restart and are not resumed automatically.
+Use `--result-file` for details beyond the 16 KiB report-summary limit. `sc team run` has no `--ui` flag, so use individually launched terminal-mode Pi sessions when the default UI must be selected. For synchronous collection, capture returned role target IDs, wait for them, then read durable reports from `sc team status`; inspect a role transcript only when its report is missing or failed. Omit `--notify self`: it prefills a follow-up in the creator's editor and can require manual submission. Reserve it for explicitly asynchronous workflows where the coordinator ends its turn after launch. A team run provides parallelism, not sequencing. Nonterminal runs become interrupted after an app restart and are not resumed automatically.
 
 ## Targeting and groups
 

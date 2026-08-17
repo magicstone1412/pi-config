@@ -19,7 +19,7 @@ The workflow is four explicit prompt commands:
 1. **`/plan <request>`** — loads the planning skill, investigates interactively, records the selected approach, and stops.
 2. **`/todos`** — loads the todo-writing skill, converts the selected plan into worker-ready todos, and stops.
 3. **`/execute`** — reads the plan and todos, uses raw Superconductor orchestration, runs source-writing workers sequentially, verifies each focused commit, and updates todo evidence from the coordinator session.
-4. **`/review`** — uses the current session and Git state, plus plan/todos when available, to run a local SC team for independent read-only review and write the final verdict.
+4. **`/review`** — runs an independent local SC review team, automatically repairs blocking findings with sequential workers, and re-reviews to approval or a bounded stop.
 
 `PI_SESSION_FILE` is required. Handover state is plain Markdown beside the current Pi session:
 
@@ -41,6 +41,8 @@ Workflow orchestration uses the `sc` CLI directly. Before launching agents or te
 - Every successful worker reads `skills/worker/SKILL.md` and the commit skill, creates one focused verified commit, reports its full SHA, and does not push.
 - The coordinator waits for and reads each stable worker target, checks errors, verifies the commit with Git, then updates the todos file.
 - Review team members are independent and read-only. They report through their SC team context; only the coordinator writes the review file.
+- Synchronous teams omit `--notify self`; the coordinator waits for role targets and collects durable reports from `sc team status` without requiring the user to submit a generated follow-up.
+- A `NEEDS CHANGES` review launches sequential repair workers automatically, verifies their commits, and runs a fresh review. Repair is bounded to two rounds.
 - Dispatch or idle state never proves completion.
 
 The workflow does not create worktrees or branches, arrange fixed panels, ship, push, open PRs, merge, or clean up sessions. Those outcomes require separate explicit requests and the relevant live SC instructions.

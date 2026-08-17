@@ -74,7 +74,7 @@ Use `sc team run` only for genuinely independent fan-out:
 sc team run \
   --label correctness --provider pi --prompt 'Independent read-only review prompt.' \
   --label regressions --provider pi --prompt 'Independent read-only review prompt.' \
-  --notify self --worktree "$PWD" --output json
+  --worktree "$PWD" --output json
 ```
 
 Every team prompt must include its task, absolute handover paths, read/write limits, and this completion contract:
@@ -84,7 +84,9 @@ sc team report --run RUN_ID --role ROLE --status done \
   --summary 'Concise evidence-based report.' --worktree "$PWD" --output json
 ```
 
-Use `--result-file` only when a detailed report exceeds the summary limit; do not use it for the session-file workflow. Inspect team status, then wait/read each stable role target and collect every report. Team launch provides parallelism, not sequencing.
+Use `--result-file` only when a detailed report exceeds the summary limit; do not use it for the session-file workflow. In a synchronous workflow, capture the returned stable role targets, wait for them, then collect the durable reports with `sc team status`. Once every role is `Reported`, use those report summaries directly; call `sc agent read` only for a missing, failed, or malformed report.
+
+Do not pass `--notify self` when the coordinator waits synchronously. That option inserts the team synthesis into the creator's editor as a follow-up prompt and may require the user to submit it. Use it only for an explicitly asynchronous workflow, end the coordinator turn after launch, and explain that behavior to the user. Never combine it with manual wait/status collection. Team launch provides parallelism, not sequencing.
 
 ## Session-File Handover
 
