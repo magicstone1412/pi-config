@@ -1,100 +1,55 @@
 ---
 name: worker
-description: "Implement one Workbench todo: join the run, claim, implement, verify, commit successful work, write a result artifact, and complete or block the todo."
+description: Implement one todo supplied by a coordinator, verify it, create one focused commit, and report evidence through the current Superconductor session. Use when launched by /execute or asked to implement one assigned todo.
 ---
 
 # Worker
 
-Execute exactly one well-scoped Workbench todo. Do not redesign, re-plan, expand scope, or launch other agents.
+Implement exactly the assigned todo. Do not redesign the plan, expand scope, launch agents, push, or edit coordinator handover files.
 
-## 1. Join and Claim
+## Inputs
 
-When the task supplies a run ID, role, label, and todo ID, join before any other Workbench operation:
+The launch prompt must provide:
 
-```typescript
-run_workspace({
-  action: "join",
-  runId: "<run-id>",
-  role: "worker",
-  label: "<label>",
-  todoId: "TODO-001",
-});
-```
+- absolute plan and todos paths;
+- one todo ID and its exact scope;
+- the checkout to use;
+- any additional acceptance constraints.
 
-In a directly launched session that is already joined, inspect `run_workspace({ action: "current" })` and use that run. Read `plan.md`, the todo, and referenced artifacts. Inspect `git status --short` before editing. A source-writing worker should start from the clean commit left by the previous sequential worker; if unrelated dirty changes make an isolated commit ambiguous, record a blocker instead of absorbing them. Claim exactly that one todo before implementation:
+Read both handover files directly and treat them as read-only. Inspect repository instructions, `git status --short`, and every target file before editing. If context is missing or unrelated dirty changes make an isolated commit unsafe, stop and report a blocker rather than guessing.
 
-```typescript
-todo({ action: "claim", id: "TODO-001" });
-```
+## Implement and Verify
 
-If required context, references, constraints, or acceptance criteria are missing, do not guess. Record an objective blocker with `todo({ action: "block", id, reason })`, write `artifacts/<label>/result.md`, and stop.
+Keep changes limited to the assigned todo and preserve unrelated work. Run the smallest meaningful tests, typecheck, build, or smoke checks required by its acceptance criteria. Remove temporary/debugging artifacts.
 
-## 2. Implement
-
-Read every target file before editing. Preserve unrelated user changes and keep the implementation focused on the claimed todo. Do not claim, release, force-release, or alter another todo. `force_release` is an explicit coordinator-only recovery action for claims left by disappeared workers; a worker must never use it to steal a claim.
-
-## 3. Verify
-
-Run the smallest meaningful verification: targeted tests, typecheck, build, or an appropriate smoke check. Capture the command and result. If verification cannot run or the acceptance criteria fail, block the todo with the concrete reason; do not complete it.
-
-## 4. Commit Successful Work
-
-After verification passes, read and follow `~/.pi/agent/skills/commit/SKILL.md`. Create exactly one focused commit for the claimed todo and do not push it.
-
-- Inspect the complete diff and remove debugging/test artifacts first.
-- Stage only files owned by this todo. Never include unrelated pre-existing changes.
-- Do not skip hooks. If a hook changes files, re-run the relevant verification and include those changes.
-- Verify the resulting SHA with `git show --stat --oneline HEAD` and inspect `git status --short`.
-- If an isolated commit cannot be made safely, block the todo with the concrete ambiguity rather than committing someone else's work.
-- A legitimately no-op todo may complete without a commit only when the result artifact proves that no source change was necessary.
-
-## 5. Record Result
-
-Always write `artifacts/<label>/result.md` after the commit and before the final todo transition:
-
-```markdown
-# Worker Result: TODO-001
-
-## Summary
-
-[What changed, or why work is blocked]
-
-## Files Changed
-
-- `path` — [why]
-
-## Verification
-
-- `<command>` — [pass/fail output or reason it could not run]
+If verification fails, do not commit partial work. Report the command, failure, and blocker.
 
 ## Commit
 
-- `<sha>` — `<subject>`
+After verification passes:
 
-## Risks
+1. Read and follow `~/.pi/agent/skills/commit/SKILL.md`.
+2. Review the complete diff and stage only this todo's files.
+3. Create exactly one focused commit; do not push.
+4. Verify it with `git show --stat --oneline HEAD` and capture the full SHA.
+5. Confirm `git status --short` contains no uncommitted changes owned by this todo.
 
-[Known follow-up, or "None"]
+A no-op todo may omit a commit only when the evidence proves no source change was needed.
+
+## Final Report
+
+Return a concise final response for the coordinator to collect with `sc agent read`:
+
+```markdown
+Status: DONE | BLOCKED
+Todo: TODO-NNN
+Summary: ...
+Files changed:
+- `path` — ...
+Verification:
+- `command` — pass/fail and key output
+Commit: `<full SHA> <subject>` | none
+Risks: none | ...
 ```
 
-Use:
-
-```typescript
-write_artifact({ path: "artifacts/<label>/result.md", content: "..." });
-```
-
-## 6. Complete or Block
-
-Only after the artifact is written and verification passes, complete the claimed todo with verification evidence:
-
-```typescript
-todo({
-  action: "complete",
-  id: "TODO-001",
-  verification: "<command> — passed",
-  artifactRefs: ["artifacts/<label>/result.md"],
-});
-```
-
-On a blocker or failed verification, use `todo({ action: "block", id, reason })` and leave it incomplete. Do not commit partial or failing work.
-
-When the launch contract requires durable parent reporting, finish with `report_to_parent`: use `status=done` only after the todo is durably `done`; use `status=needs_input` after recording a blocker. Call it before the final response. Runtime idle and terminal prose are not completion signals.
+The coordinator—not the worker—updates todo state. A terminal response is the handoff; do not write result artifacts or any other state file.

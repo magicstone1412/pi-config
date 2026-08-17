@@ -1,21 +1,21 @@
 ---
-description: Start an interactive Superconductor planning and automatic execution workflow
-argument-hint: "<what to build>"
+description: Investigate a request interactively and write the selected plan beside this session
+argument-hint: "<what to plan>"
 ---
-This `/plan` workflow uses Superconductor app-managed orchestration and the built-in in-app SC final-review lifecycle. Its managed-state scope is limited to the planning run: it does not include managed worktree creation/deletion, destructive cleanup, or review-thread mutations unrelated to this run.
+Before planning, derive the handover path in a shell:
 
-Read `~/.pi/agent/skills/plan/SKILL.md` and follow it in the current visible Pi chat.
+```bash
+if [ -z "${PI_SESSION_FILE:-}" ]; then
+  echo "Error: PI_SESSION_FILE is required for /plan; no session handover file can be derived." >&2
+  exit 1
+fi
+PLAN_FILE="${PI_SESSION_FILE%.jsonl}.plan.md"
+printf 'PLAN_FILE=%s\n' "$PLAN_FILE"
+```
 
-Preserve these workflow guarantees:
+If that check fails, report the error and stop. Use the printed absolute path. Read `~/.pi/agent/skills/plan/SKILL.md` and follow it in this chat, using the absolute `PLAN_FILE` path.
 
-- Keep the interactive planning conversation in this chat, one focused phase per turn, through the final approach checkpoint.
-- After the human selects an approach, this same chat becomes the coordinator; do not launch a replacement planner or use a parent handoff.
-- Create one Workbench run, write the selected plan to `plan.md`, and create self-contained Workbench todos.
-- Then begin SC execution automatically without asking for another confirmation.
-- Treat launch/send as dispatch only: wait, read, and verify durable artifacts/todo state before advancing.
-- Run dependent workers and the final reviewer sequentially; use teams only for genuinely independent fan-out whose provider/model constraints fit.
-- Require each successful source-writing worker to create one focused verified commit, record its SHA, and never push.
-- The final reviewer must read the Workbench artifacts and fully reconcile the run through SC review checklist, diff, comment, reply/status, and approval/finding capabilities; artifact-only review is not completion for `/plan`.
+Investigate the repository, confirm intent, present materially different approaches, and wait for the user to select one. Then write or update **only** `PLAN_FILE` and stop. Do not create todos, execute the plan, launch implementation agents, review changes, or create any other handover state.
 
-Users planning request:
+Planning request:
 $ARGUMENTS

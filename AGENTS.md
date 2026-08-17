@@ -154,24 +154,37 @@ When something breaks, don't guess — investigate first.
 
 Avoid shotgun debugging ("let me try this... nope, what about this..."). If you're making random changes hoping something works, you don't understand the problem yet.
 
+### Session-File Workflow
+
+The `/plan`, `/todos`, `/execute`, and `/review` commands use plain Markdown handovers adjacent to Pi's current session JSONL. Before using one, require `PI_SESSION_FILE` and derive exactly:
+
+- `${PI_SESSION_FILE%.jsonl}.plan.md`
+- `${PI_SESSION_FILE%.jsonl}.todos.md`
+- `${PI_SESSION_FILE%.jsonl}.review.md`
+
+Fail clearly when `PI_SESSION_FILE` is absent. Do not create a sidecar directory, repository run store, membership system, coordination-state mirror, or custom JSONL state. The coordinator session owns every handover-file write. Delegated agents receive resolved absolute paths in their prompts, read those files directly, and return results through Superconductor.
+
+The commands are deliberately separate:
+
+- `/plan` investigates interactively, records the selected approach in the plan file, and stops.
+- `/todos` reads the plan, writes or updates worker-ready todos, and stops.
+- `/execute` runs ready source-writing workers sequentially in the shared checkout, verifies each focused commit, and updates todo evidence from the coordinator session.
+- `/review` uses an independent local SC team for read-only assessment, collects its reports, and writes the review file from the coordinator session.
+
 ### Superconductor Control Plane
 
-Inside super.engineering, Superconductor is Pi's default control plane for delegated work and managed sessions. Pi may use `sc` for agents, workers, reviewers, delegation, parallel work, teams, and session coordination whenever it materially helps the task. Generic agent or delegation requests may be fulfilled through SC without a special keyword or an additional permission check. Use provider-native subagents when the human explicitly requests native provider behavior or when SC lacks the required capability.
-
-Before the first mutation in an SC-managed area, run the applicable `sc instructions` guide:
+Read `~/.pi/agent/skills/superconductor/SKILL.md` before SC work and run the applicable live guide before the first mutation:
 
 - orchestration: `sc instructions orchestration`
 - layouts or sessions: `sc instructions layout`
 - worktrees or branches: `sc instructions worktree`
 - review threads: `sc instructions review`
 
-Keep managed-state changes scoped to the requested work. Non-destructive launches and coordination are allowed by default. Explicit human intent is still required for managed worktree creation or deletion, target-branch changes, force termination, destructive cleanup, closing or rearranging existing user sessions, and review-thread mutations unrelated to the requested workflow.
+Use raw `sc` commands for workflow delegation. Treat launch and idle as runtime state only: wait, read the same stable target, check target/provider errors, and independently verify reported work. Source-writing workers in one checkout run sequentially; each reads the worker and commit skills, makes one focused verified commit, reports its SHA, and never pushes. Read-only team roles report through their SC team context and never edit handover files.
 
-In a Superconductor-managed Pi terminal, update the app tab title with `sc tab title "$TITLE" --to "id:terminal:$SUPERCONDUCTOR_TERMINAL_ID" --json`. Verify that `response.new_title` matches the requested title. Do not omit the stable target: untargeted title updates may resolve the calling session without changing the app tab.
+Explicit human intent is required for managed worktree creation/deletion, target-branch changes, force termination, destructive cleanup, closing or rearranging existing sessions, and unrelated review-thread mutations. Keep the simple workflow free of worktree automation, shipping, push, PR, merge, and cleanup behavior.
 
-A clean Superconductor-managed Pi session automatically starts in its worktree's ambient Workbench workspace run. Inspect that membership with `run_workspace({ action: "current" })`; do not create or join a run merely to initialize Workbench. For a coordinated task workflow, the coordinator creates one dedicated Workbench run with `run_workspace`, writes `plan.md`, and creates durable todos. Every launched Pi role receives the task run ID, role, label, and optional todo ID, and joins it first with `run_workspace({ action: "join", ... })`. Use Workbench artifacts and todo state as the durable record; SC labels and coordination-state are runtime-only controls.
-
-Read-only scouts may run concurrently. Source-writing workers run sequentially in a shared worktree unless the human explicitly requests managed worktrees. Each successful source-writing worker reads the commit skill, creates one focused commit for its todo without pushing, and records the SHA in its result artifact before completion. Dispatch and runtime idle are not completion. Workbench-native Pi roles complete through durable `report_to_parent` plus todo/artifact agreement. The standard code reviewer for `/plan` and direct review workflows is Claude Code with `claude-fable-5` at `high` reasoning, launched through `launch_review_agent`; it completes through provider-authored nonce-bound SC review comments and a Workbench-generated artifact. Verify the durable evidence before advancing, and do not silently substitute another reviewer when Claude/Fable is unavailable.
+In a Superconductor-managed Pi terminal, update the app tab title with `sc tab title "$TITLE" --to "id:terminal:$SUPERCONDUCTOR_TERMINAL_ID" --json` and verify `response.new_title`.
 
 #### When Not to Delegate
 

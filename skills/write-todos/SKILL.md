@@ -1,72 +1,59 @@
 ---
 name: write-todos
-description: Write clear Workbench todos that workers can execute without losing architectural intent. Use when asked to "create todos", "write todos", "break into tasks", "plan todos", or create work items from a plan.
+description: Convert a selected Markdown plan into clear, dependency-ordered Markdown todos. Use for /todos, breaking plans into tasks, or updating execution status from coordinator evidence.
 ---
 
-# Write Workbench Todos
+# Write Todos
 
-Write durable Workbench todos that a worker can execute from the todo body, `plan.md`, referenced artifacts, and source files. Every todo must preserve the architectural intent from the plan.
-
-## Run Setup
-
-The coordinator creates or joins the Workbench run before creating todos. A directly launched coordinator session that is already joined uses its active run. Write the selected plan to `plan.md` before creating todos.
-
-Create each item with:
-
-```typescript
-todo({
-  action: "create",
-  title: "Short outcome",
-  body: "...",
-  priority: "high",
-  tags: ["plan-tag"],
-  dependsOn: ["TODO-001"]
-})
-```
-
-Use `dependsOn: []` when there are no dependencies. Todo IDs are assigned by Workbench; record them in dependent todo bodies after creation if helpful.
-
-## Todo Body Template
-
-```markdown
-**Run plan:** `plan.md`
-**Relevant artifacts:** `artifacts/<label>/report.md` or "none"
-**Depends on:** TODO-001 or "none"
-
-## Outcome
-[One paragraph: what this todo produces and why]
-
-## Constraints
-- [Architectural constraints]
-- [Libraries/patterns to use]
-- [Explicit anti-patterns to avoid]
-- Read and follow the commit skill; commit only this todo's verified changes and do not push.
-
-## Files
-- `path/to/file` — [what changes]
-
-## References
-- `path/to/example.ts:10-45` — [pattern to follow]
-
-## Expected Shape
-```typescript
-// Short code sketch when no existing reference is sufficient
-```
-
-## Acceptance Criteria
-- [ ] [Specific, verifiable criterion]
-- [ ] `<command>` passes
-- [ ] One focused commit exists and its SHA is recorded in the result artifact
-```
+Read the absolute plan path supplied by the caller. Write only the supplied todos path; do not implement work or launch agents.
 
 ## Rules
 
-- Repeat every relevant plan decision in the body; workers must not infer constraints.
-- Include an inline code sketch or a precise existing source reference.
-- Name plausible wrong approaches explicitly.
-- Keep one todo to one focused worker session. Source-writing todos are sequential in one shared worktree unless the human explicitly authorizes managed worktrees.
-- Use dependencies for ordering; workers cannot claim an item until its dependencies complete.
-- Make acceptance criteria objective, with commands, file checks, API results, or exact behavior.
-- Require every source-writing worker to join the run, claim exactly one todo, verify it, read the commit skill, create one focused commit without pushing, record its SHA in `artifacts/<label>/result.md`, then complete or block it. Never tell a worker not to commit.
+- Preserve the plan's architecture, scope, exclusions, and acceptance criteria.
+- Use stable sequential IDs (`TODO-001`, `TODO-002`, ...). When updating an existing file, preserve IDs and completed evidence.
+- Make each source-writing todo fit one focused worker and one commit.
+- Source-writing todos must be dependency ordered because workers share one checkout and run sequentially.
+- Repeat the constraints a worker needs; do not make it infer critical intent.
+- Name target files, useful source references, objective checks, and plausible wrong approaches.
+- Only the coordinator updates status, owner, commit, verification, and result fields. Delegated agents read this file but never edit it.
 
-Before creating each todo, verify it is independently implementable, references `plan.md`, states dependencies, includes constraints and a source reference or sketch, and has objective acceptance criteria.
+## File Format
+
+```markdown
+# Execution Todos
+
+**Status:** Pending | In Progress | Complete | Blocked
+**Plan:** `/absolute/path/to/session.plan.md`
+**Updated:** [ISO-8601 timestamp]
+
+## TODO-001 — [outcome]
+
+**Status:** Pending | In Progress | Complete | Blocked
+**Depends on:** none | TODO-NNN
+**Owner:** unassigned | [SC label]
+**Commit:** pending | [full SHA] | n/a
+
+### Outcome
+[What this produces and why]
+
+### Constraints
+- [plan decision to preserve]
+- [explicit non-goal or wrong approach]
+
+### Files and References
+- `path/to/file` — [expected change]
+- `path/to/example:line` — [pattern to follow]
+
+### Acceptance Criteria
+- [ ] [observable result tied to a plan criterion]
+- [ ] `[verification command]` passes
+- [ ] One focused commit contains only this todo's changes and is not pushed
+
+### Verification
+- Pending
+
+### Result
+- Pending
+```
+
+Use `Blocked` with an objective reason. Mark the top-level status `Complete` only when every required todo is complete with verified commit/result evidence (or an explicitly justified `n/a`).

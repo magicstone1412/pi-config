@@ -4,8 +4,5 @@
   "description": "Personal pi coding agent configuration — clone to ~/.pi/agent/",
   "keywords": ["pi-package"],
   "author": "HazAT",
-  "license": "MIT",
-  "scripts": {
-    "test:workbench": "bun test extensions/workbench/workbench.test.ts"
-  }
+  "license": "MIT"
 }
