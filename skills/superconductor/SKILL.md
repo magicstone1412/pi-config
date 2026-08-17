@@ -92,6 +92,7 @@ For `/plan`, `/todos`, `/execute`, and `/review`:
 
 - `PI_SESSION_FILE` is required in the coordinator session.
 - Durable handover files are exactly `${PI_SESSION_FILE%.jsonl}.plan.md`, `${PI_SESSION_FILE%.jsonl}.todos.md`, and `${PI_SESSION_FILE%.jsonl}.review.md`.
+- `/review` may use the session JSONL and Git state without plan or todos files; include either handover when it exists.
 - The coordinator alone writes these files.
 - Delegated prompts receive the resolved absolute paths and read them directly.
 - Do not create sidecar directories, repository run stores, membership records, coordination-state mirrors, or custom JSONL state.

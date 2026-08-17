@@ -11,11 +11,12 @@ Review for correctness, security, regressions, and acceptance-criteria gaps. Do 
 
 When invoked in the user's session:
 
-1. Read the supplied absolute plan and todos files plus the relevant Git diff and commits.
-2. Read `~/.pi/agent/skills/superconductor/SKILL.md`, follow its live preflight, and launch one local SC team with 2–3 independent read-only roles. Useful focuses are correctness, tests/regressions, and security/maintainability.
-3. Give each role the absolute handover paths, exact diff/commit scope, its focus, and the delegated contract below.
-4. Collect every team report and check for target/provider errors. Run targeted verification yourself where useful.
-5. Synthesize evidence, deduplicate findings, and write only the supplied absolute review path. Stop.
+1. Read the supplied session JSONL and any supplied plan or todos files that exist, plus the relevant Git diff and commits. Plan and todos are optional; when absent, recover intent and implementation evidence from the current session and repository state. Use the session-reader skill for focused extraction rather than parsing a large JSONL manually.
+2. Determine and state the exact review scope. Ask the user only when the session and Git evidence leave a material scope ambiguity.
+3. Read `~/.pi/agent/skills/superconductor/SKILL.md`, follow its live preflight, and launch one local SC team with 2–3 independent read-only roles. Useful focuses are correctness, tests/regressions, and security/maintainability.
+4. Give each role the absolute session path, every available handover path, exact diff/commit scope, its focus, and the delegated contract below.
+5. Collect every team report and check for target/provider errors. Run targeted verification yourself where useful.
+6. Synthesize evidence, deduplicate findings, and write only the supplied absolute review path. Stop.
 
 The coordinator owns the review file. Do not create a separate captain, final-marker protocol, sidecar, or other state.
 
@@ -23,7 +24,7 @@ The coordinator owns the review file. Do not create a separate captain, final-ma
 
 When the launch prompt identifies this session as a team reviewer:
 
-- Read the supplied handover paths directly and treat them as read-only.
+- Read the supplied session path and any available handover paths directly; treat them as read-only.
 - Inspect the assigned diff/commits and trace changed logic before judging it.
 - Run only safe, read-only checks.
 - Report only concrete, introduced, actionable issues. Include file/line, impact, and a suggested fix.
@@ -43,8 +44,9 @@ When the launch prompt identifies this session as a team reviewer:
 # Code Review
 
 **Verdict:** APPROVED | NEEDS CHANGES
-**Plan:** `/absolute/path/to/session.plan.md`
-**Todos:** `/absolute/path/to/session.todos.md`
+**Session:** `/absolute/path/to/session.jsonl`
+**Plan:** `/absolute/path/to/session.plan.md` | not provided
+**Todos:** `/absolute/path/to/session.todos.md` | not provided
 **Reviewed commits:** [SHAs or range]
 
 ## Summary

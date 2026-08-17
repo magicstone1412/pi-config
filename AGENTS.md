@@ -169,7 +169,7 @@ The commands are deliberately separate:
 - `/plan` investigates interactively, records the selected approach in the plan file, and stops.
 - `/todos` reads the plan, writes or updates worker-ready todos, and stops.
 - `/execute` runs ready source-writing workers sequentially in the shared checkout, verifies each focused commit, and updates todo evidence from the coordinator session.
-- `/review` uses an independent local SC team for read-only assessment, collects its reports, and writes the review file from the coordinator session.
+- `/review` uses an independent local SC team for read-only assessment, collects its reports, and writes the review file from the coordinator session. The current session JSONL and Git state are sufficient inputs; adjacent plan and todos files are optional context.
 
 ### Superconductor Control Plane
 

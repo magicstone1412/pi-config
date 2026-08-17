@@ -19,7 +19,7 @@ The workflow is four explicit prompt commands:
 1. **`/plan <request>`** — loads the planning skill, investigates interactively, records the selected approach, and stops.
 2. **`/todos`** — loads the todo-writing skill, converts the selected plan into worker-ready todos, and stops.
 3. **`/execute`** — reads the plan and todos, uses raw Superconductor orchestration, runs source-writing workers sequentially, verifies each focused commit, and updates todo evidence from the coordinator session.
-4. **`/review`** — uses a local SC team for independent read-only review, collects the reports, and writes the final verdict.
+4. **`/review`** — uses the current session and Git state, plus plan/todos when available, to run a local SC team for independent read-only review and write the final verdict.
 
 `PI_SESSION_FILE` is required. Handover state is plain Markdown beside the current Pi session:
 
@@ -29,7 +29,7 @@ ${PI_SESSION_FILE%.jsonl}.todos.md
 ${PI_SESSION_FILE%.jsonl}.review.md
 ```
 
-There is no sidecar directory, repository run store, membership system, or custom JSONL state. The current coordinator owns all writes. Delegated agents receive resolved absolute paths in their SC prompts, read the handovers directly, and return results through SC.
+There is no sidecar directory, repository run store, membership system, or custom JSONL state. The current coordinator owns all writes. Delegated agents receive resolved absolute paths in their SC prompts, read the handovers directly, and return results through SC. `/review` requires only the session JSONL; the plan and todos files are optional context so directly implemented work can be reviewed without first running `/plan` or `/todos`.
 
 The todos file uses stable IDs, dependency and status fields, objective acceptance criteria, verification evidence, and commit SHAs. Workers never edit it themselves.
 
