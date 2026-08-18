@@ -1,6 +1,6 @@
 # Pi Config
 
-Personal global [Pi](https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent) configuration. Clone it to `~/.pi/agent/` for shared settings, skills, prompt templates, one small extension, and model configuration.
+Personal global [Pi](https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent) configuration. Clone it to `~/.pi/agent/` for shared settings, skills, prompt templates, extensions, and model configuration.
 
 ## Setup
 
@@ -10,7 +10,7 @@ git clone git@github.com:HazAT/pi-config ~/.pi/agent
 cd ~/.pi/agent && ./setup.sh
 ```
 
-Add provider credentials to `~/.pi/agent/auth.json` and restart Pi. `setup.sh` requires this repository at `~/.pi/agent/`, preserves an existing `settings.json`, and installs the configured external packages.
+Add provider credentials to `~/.pi/agent/auth.json` and restart Pi. `setup.sh` requires this repository at `~/.pi/agent/`, preserves an existing `settings.json`, installs the configured Git-backed packages, and installs the [macOS Harness](https://github.com/browser-use/macos-harness) runtime with `uv` on macOS.
 
 ## Session-file workflow
 

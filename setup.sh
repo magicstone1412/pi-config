@@ -26,7 +26,8 @@ if [ ! -f "$EXPECTED_DIR/settings.json" ]; then
   "defaultThinkingLevel": "high",
   "packages": [
     "git:github.com/pasky/chrome-cdp-skill",
-    "git:github.com/HazAT/pi-parallel"
+    "git:github.com/HazAT/pi-parallel",
+    "git:github.com/HazAT/pi-macos-harness"
   ],
   "hideThinkingBlock": true,
   "enabledModels": [
@@ -50,7 +51,18 @@ fi
 echo "Installing configured packages..."
 pi install git:github.com/pasky/chrome-cdp-skill 2>/dev/null || echo "  chrome-cdp-skill already installed"
 pi install git:github.com/HazAT/pi-parallel 2>/dev/null || echo "  pi-parallel already installed"
+pi install git:github.com/HazAT/pi-macos-harness 2>/dev/null || echo "  pi-macos-harness already installed"
 echo ""
+
+if [ "$(uname -s)" = "Darwin" ]; then
+  if ! command -v uv >/dev/null 2>&1; then
+    echo "uv is required to install macOS Harness. Install uv, then run ./setup.sh again."
+    exit 1
+  fi
+  echo "Installing macOS Harness..."
+  uv tool install --python 3.12 --upgrade macos-harness
+  echo ""
+fi
 
 echo "✅ Setup complete!"
 echo ""

@@ -5,7 +5,8 @@
   "defaultThinkingLevel": "high",
   "packages": [
     "git:github.com/pasky/chrome-cdp-skill",
-    "git:github.com/HazAT/pi-parallel"
+    "git:github.com/HazAT/pi-parallel",
+    "git:github.com/HazAT/pi-macos-harness"
   ],
   "hideThinkingBlock": false,
   "enabledModels": [],
