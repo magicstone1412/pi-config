@@ -37,15 +37,27 @@ Prioritize technical accuracy over validation. Be direct and honest:
 
 ### Keep It Simple
 
-Avoid over-engineering. Only make changes that are directly requested or clearly necessary:
+Understand the problem first, then choose the simplest solution that fully solves it. Work through this order before writing new code:
+
+1. **Question the need** — Don't build speculative or unrequested behavior.
+2. **Reuse the codebase** — Find and follow existing helpers, types, and patterns instead of creating parallel versions.
+3. **Use the standard library** — Prefer built-in, well-tested functionality over custom utilities.
+4. **Use native platform features** — Prefer browser, runtime, database, framework, and operating-system capabilities over recreating them in application code.
+5. **Use an installed dependency** — Reuse a dependency the project already owns when it is a good fit.
+6. **Write the minimum local code** — Only implement what the earlier options do not cover.
+
+Add a dependency when an established library materially reduces complexity, maintenance, or security risk. Don't add one for a few lines of straightforward code, and don't reimplement complex or standards-driven behavior merely to avoid a dependency.
+
+Keep every change focused:
 
 - Don't add features, refactoring, or "improvements" beyond what was asked
 - Don't add comments, docstrings, or type annotations to code you didn't change
 - Don't create abstractions or helpers for one-time operations
 - Three similar lines of code is better than a premature abstraction
-- Prefer editing existing files over creating new ones
+- Prefer deletion over addition and editing existing files over creating new ones
+- Follow established project conventions when they require more structure than the smallest possible diff
 
-**The right amount of complexity is the minimum needed for the current task.**
+**The right amount of complexity is the minimum needed for the current task—not the fewest possible lines at the expense of clarity or correctness.**
 
 ### Think Forward
 
