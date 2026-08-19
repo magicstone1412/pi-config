@@ -1,11 +1,11 @@
 ---
 name: review
-description: Coordinate an independent local code review, automatically repair actionable findings with sequential workers, and re-review to a final verdict. Use for /review or when launched as an SC team reviewer.
+description: Coordinate a model-diverse local code review, automatically repair actionable findings with sequential workers, and re-review to a final verdict. Use for /review or when launched as an SC ensemble reviewer.
 ---
 
 # Review and Repair
 
-Review for correctness, security, regressions, and acceptance-criteria gaps. Team reviewers remain read-only. In coordinator mode, do not edit source directly; coordinate repair workers when the review requires changes.
+Review for correctness, security, regressions, and acceptance-criteria gaps. Delegated reviewers remain read-only. In coordinator mode, do not edit source directly; coordinate repair workers when the review requires changes.
 
 ## Coordinator Mode
 
@@ -31,13 +31,15 @@ REVIEW_FILE="${PI_SESSION_FILE%.jsonl}.review.md"
 
 ### 2. Run one review attempt
 
-Launch one local SC team with three independent read-only roles and unique attempt-scoped labels:
+Launch one model-diverse SC reviewer ensemble with three independent read-only Pi Chat UI sessions and unique attempt-scoped labels:
 
-| Role | Owns | Avoids |
-|---|---|---|
-| correctness | backend behavior, data integrity, concurrency, acceptance criteria | broad UI and security review |
-| regressions | frontend behavior, accessibility, responsive layout, focused tests | backend/security duplication |
-| security | authentication, authorization, privacy, trust boundaries | general maintainability polish |
+| Role | Pi model | Reasoning | Owns | Avoids |
+|---|---|---|---|---|
+| lead | `openai-codex/gpt-5.6-sol` | `high` | broad correctness, acceptance criteria, cross-report synthesis | style-only polish |
+| grok | `openrouter/x-ai/grok-4.6` | configured default | adversarial correctness, security, trust boundaries | general maintainability polish |
+| kimi | `openrouter/moonshotai/kimi-k3` | configured default | regressions, cross-file behavior, frontend/accessibility, focused tests | duplicating broad security review |
+
+At preflight, verify all three exact model IDs under the enabled `pi` provider with `sc chat providers --json`. Fail clearly rather than substituting a provider or model. Current `sc team run` cannot select a UI or model per role, so do not use it for this ensemble. Launch each role with `sc layout run tabs`, `--provider pi`, `--ui chat`, its exact `--model`, and `--reasoning high` only for the lead. The explicit Chat UI is required because SC's omitted/auto UI currently resolves delegated Pi launches to terminal mode rather than the configured Pi chat experience.
 
 Give each role:
 
@@ -47,11 +49,13 @@ Give each role:
 - the session path only as optional fallback context;
 - its exclusive focus and the delegated contract below.
 
-Do not use `--notify self`. Capture the returned stable role targets, wait for all of them, then collect durable reports with `sc team status`. When every role is `Reported`, use the report summaries directly. Read an agent transcript only when its report is missing, failed, or malformed.
+Start all three sessions without waiting between launches. Capture every returned stable target, wait for all three, and read each target's final report. Check target/provider errors and malformed or incomplete output; do not infer success from idle state.
 
-Reviewers should not all run the same broad suite. Let the regressions role run focused tests when useful; the coordinator runs one definitive verification set after collecting reports.
+After collecting the grok and kimi reports, send them to the same lead target for a synthesis turn. Require the lead to deduplicate claims, preserve disagreements, and return one proposed verdict with concrete findings. Wait for and read that same lead target again; do not launch a replacement lead.
 
-Deduplicate and independently verify findings. A finding blocks approval only when it is concrete, introduced by the review range, and either P0/P1 or a P2 required by the selected acceptance criteria. P3 never blocks approval.
+Reviewers should not all run the same broad suite. Let the kimi role run focused tests when useful; the coordinator runs one definitive verification set after collecting reports.
+
+Independently verify the lead's synthesis against the diff and specialist reports. A finding blocks approval only when it is concrete, introduced by the review range, and either P0/P1 or a P2 required by the selected acceptance criteria. P3 never blocks approval.
 
 Write the current attempt to the supplied review file before any repair. Set `APPROVED` only when no blocking finding remains.
 
@@ -65,7 +69,7 @@ When blocking findings remain:
 4. Require one focused verified commit per repair task and no push. The worker must leave task-owned files clean after its final verification.
 5. Wait and read the same stable worker target. Verify its reported SHA, diff scope, checks, and clean status independently before launching the next worker.
 6. Record repair task IDs, commit SHAs, and verification in the review file.
-7. Re-run a fresh independent review attempt against the original base through the new HEAD, using new team labels.
+7. Re-run a fresh independent review attempt against the original base through the new HEAD, using new ensemble labels.
 
 Run at most two repair rounds. Stop early and report `NEEDS CHANGES` when a worker blocks, verification fails, a safety decision requires the user, or blocking findings remain after round two. Do not hide or downgrade unresolved findings to force approval.
 
@@ -86,7 +90,7 @@ The coordinator owns every handover-file write. Do not create a captain protocol
 
 ## Delegated Reviewer Contract
 
-When the launch prompt identifies this session as a team reviewer:
+When the launch prompt identifies this session as an ensemble reviewer:
 
 - Read the supplied handovers and optional session path directly; treat them as read-only.
 - Inspect the assigned diff and trace relevant unchanged logic before judging it.
@@ -94,7 +98,7 @@ When the launch prompt identifies this session as a team reviewer:
 - Run only safe, read-only, focused checks. Do not run a broad suite unless your assigned focus requires it.
 - Report only concrete, introduced, actionable issues. Include priority, file/line, impact, and suggested fix.
 - Do not edit files, write handovers, commit, push, or launch agents.
-- Finish with `sc team report` using the supplied team context. Return `APPROVED` when no blocking finding exists.
+- Finish with a concise normal assistant response containing `APPROVED` or `NEEDS CHANGES`, followed by findings and evidence. Do not call `sc team report`; these model-pinned Chat UI reviewers are collected from their stable targets.
 
 ## Priorities
 
@@ -133,9 +137,9 @@ When the launch prompt identifies this session as a team reviewer:
 - `REVIEW-FIX-1-1` — `<sha>` — [summary and verification]
 
 ## Independent Reports
-- **correctness:** [verdict and evidence]
-- **regressions:** [verdict and evidence]
-- **security:** [verdict and evidence]
+- **lead (`openai-codex/gpt-5.6-sol`, high):** [synthesized verdict and evidence]
+- **grok (`openrouter/x-ai/grok-4.6`):** [verdict and evidence]
+- **kimi (`openrouter/moonshotai/kimi-k3`):** [verdict and evidence]
 
 ## Residual Risks
 - None | [nonblocking risk]

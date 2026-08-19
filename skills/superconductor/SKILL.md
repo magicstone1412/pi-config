@@ -68,7 +68,7 @@ Use `sc agent send` for clarification in the existing session. If a turn must be
 
 ## Independent Teams
 
-Use `sc team run` only for genuinely independent fan-out:
+Use `sc team run` only for genuinely independent fan-out whose roles do not require per-role UI or model overrides:
 
 ```bash
 sc team run \
@@ -76,6 +76,8 @@ sc team run \
   --label regressions --provider pi --prompt 'Independent read-only review prompt.' \
   --worktree "$PWD" --output json
 ```
+
+`sc team run` currently has no per-role `--ui`, `--model`, or `--reasoning` flags. When an ensemble requires distinct Pi models or Pi Chat UI, launch individually labeled sessions with `sc layout run tabs`, wait/read their stable targets, and fan their reports into the designated lead session. Do not claim those sessions are an SC team run or instruct them to call `sc team report`.
 
 Every team prompt must include its task, absolute handover paths, read/write limits, and this completion contract:
 
