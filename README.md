@@ -63,6 +63,7 @@ The workflow does not create worktrees or branches, arrange fixed panels, ship, 
 | `skills/scout/` | Read-only repository reconnaissance |
 | `skills/superconductor/` | Central SC policy, syntax, and live-preflight guidance |
 | `skills/setup-superconductor-project/` | Repo-owned worktree setup and development-server configuration |
+| `skills/pi-extension-development/` | Manual-only standards for standalone Pi extension repositories and releases |
 | `skills/commit/` | Required procedure before every Git commit |
 | `extensions/execute-command/` | `execute_command` for self-invoked slash commands and steer messages |
 | `settings.json`, `models.json`, `mcp.json` | Pi configuration |
