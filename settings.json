@@ -6,7 +6,8 @@
   "packages": [
     "git:github.com/pasky/chrome-cdp-skill",
     "git:github.com/HazAT/pi-parallel",
-    "git:github.com/HazAT/pi-macos-harness"
+    "git:github.com/HazAT/pi-macos-harness",
+    "git:github.com/nicobailon/visual-explainer"
   ],
   "hideThinkingBlock": false,
   "enabledModels": [],
