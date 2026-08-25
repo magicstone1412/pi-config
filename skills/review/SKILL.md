@@ -14,14 +14,18 @@ Review for correctness, security, regressions, and acceptance-criteria gaps. Del
 Derive the coordinator files before continuing:
 
 ```bash
-if [ -z "${PI_SESSION_FILE:-}" ] || [ ! -f "$PI_SESSION_FILE" ]; then
-  echo "Error: /review requires a persistent PI_SESSION_FILE." >&2
+if [ -n "${PI_SESSION_FILE:-}" ]; then
+  SESSION_FILE="$PI_SESSION_FILE"
+elif [ -n "${CLAUDE_CODE_SESSION_ID:-}" ]; then
+  SESSION_FILE="$HOME/.claude/projects/$(printf '%s' "${CLAUDE_PROJECT_DIR:-$PWD}" | tr '/.' '--')/${CLAUDE_CODE_SESSION_ID}.jsonl"
+else
+  echo "Error: /review requires a persistent session file (PI_SESSION_FILE or CLAUDE_CODE_SESSION_ID)." >&2
   exit 1
 fi
-SESSION_FILE="$PI_SESSION_FILE"
-PLAN_FILE="${PI_SESSION_FILE%.jsonl}.plan.md"
-TODOS_FILE="${PI_SESSION_FILE%.jsonl}.todos.md"
-REVIEW_FILE="${PI_SESSION_FILE%.jsonl}.review.md"
+test -f "$SESSION_FILE" || { echo "Error: session file not found: $SESSION_FILE" >&2; exit 1; }
+PLAN_FILE="${SESSION_FILE%.jsonl}.plan.md"
+TODOS_FILE="${SESSION_FILE%.jsonl}.todos.md"
+REVIEW_FILE="${SESSION_FILE%.jsonl}.review.md"
 ```
 
 1. Require `SESSION_FILE`. Read `PLAN_FILE` or `TODOS_FILE` when each exists; they are optional.

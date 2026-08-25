@@ -94,8 +94,8 @@ Do not pass `--notify self` when the coordinator waits synchronously. That optio
 
 For `/plan`, `/todos`, `/execute`, and `/review`:
 
-- `PI_SESSION_FILE` is required in the coordinator session.
-- Durable handover files are exactly `${PI_SESSION_FILE%.jsonl}.plan.md`, `${PI_SESSION_FILE%.jsonl}.todos.md`, and `${PI_SESSION_FILE%.jsonl}.review.md`.
+- A coordinator session file is required: `PI_SESSION_FILE` in Pi, or `$HOME/.claude/projects/<project slug>/$CLAUDE_CODE_SESSION_ID.jsonl` in Claude Code (slug = the project directory path with `/` and `.` mapped to `-`).
+- Durable handover files are exactly `${SESSION_FILE%.jsonl}.plan.md`, `${SESSION_FILE%.jsonl}.todos.md`, and `${SESSION_FILE%.jsonl}.review.md`.
 - `/review` may use the session JSONL and Git state without plan or todos files; include either handover when it exists.
 - The coordinator alone writes these files.
 - Delegated prompts receive the resolved absolute paths and read them directly.

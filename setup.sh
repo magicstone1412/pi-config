@@ -64,6 +64,10 @@ if [ "$(uname -s)" = "Darwin" ]; then
   echo ""
 fi
 
+echo "Linking skills/prompts into Claude Code..."
+"$EXPECTED_DIR/link-claude.sh"
+echo ""
+
 echo "✅ Setup complete!"
 echo ""
 echo "Restart pi to pick up all changes."
