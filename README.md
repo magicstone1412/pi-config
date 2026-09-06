@@ -10,9 +10,9 @@ git clone git@github.com:magicstone1412/pi-config ~/.pi/agent
 cd ~/.pi/agent && ./setup.sh
 ```
 
-`~/.pi/agent` is Pi's global configuration directory. If it already exists, do not clone over it: clone this repo elsewhere, set `PI_CODING_AGENT_DIR` to that checkout, and run `./setup.sh` from there, or merge the repo files into the existing directory first.
+`~/.pi/agent` is Pi's global configuration directory. If it already exists, do not clone over it: clone this repo elsewhere, set `PI_CODING_AGENT_DIR` to that checkout, and run `./setup.sh` from there, or merge the repo files into the existing directory first. `PI_CODING_AGENT_DIR` must also be set when starting Pi; an `export` inside `setup.sh` cannot persist after the script exits. If you prefer Pi's default directory, use `./setup.sh --merge-default` to merge this checkout into `~/.pi/agent` without overwriting existing files.
 
-Add provider credentials to `auth.json` in the Pi config directory and restart Pi. `setup.sh` runs headlessly on Linux or on Windows through Git Bash, MSYS2, or Cygwin. It installs the configured Git-backed packages and preserves existing `settings.json`, `models.json`, provider credentials, and installed packages. Existing settings therefore keep their provider/model defaults; the repo's non-package settings are only applied when you merge them yourself. The script intentionally skips `pi-macos-harness`, which is macOS-only. Run `./link-claude.sh` separately only if you also want the skills and prompts linked into Claude Code.
+Add provider credentials to `auth.json` in the Pi config directory and start Pi with that directory selected, for example `PI_CODING_AGENT_DIR="$PWD" pi` in Git Bash or `$env:PI_CODING_AGENT_DIR = (Get-Location).Path; pi` in PowerShell. To use the default config directory instead, run `./setup.sh --merge-default` from this checkout, then start Pi normally with `pi`. The merge keeps existing files and only adds missing files under `skills/`, `prompts/`, and `extensions/`; it does not copy `settings.json`, `models.json`, `auth.json`, or `mcp.json`. `setup.sh` runs headlessly on Linux or on Windows through Git Bash, MSYS2, or Cygwin. It installs the configured Git-backed packages and preserves existing `settings.json`, `models.json`, provider credentials, and installed packages. Existing settings therefore keep their provider/model defaults; the repo's non-package settings are only applied when you merge them yourself. The script intentionally skips `pi-macos-harness`, which is macOS-only. Run `./link-claude.sh` separately only if you also want the skills and prompts linked into Claude Code.
 
 ## Session-file workflow
 
@@ -71,17 +71,25 @@ The workflow does not create worktrees or branches, arrange fixed panels, ship, 
 | `extensions/execute-command/` | `execute_command` for self-invoked slash commands and steer messages |
 | `settings.json`, `models.json`, `mcp.json` | Pi configuration |
 
-Pi discovers global prompt templates from `~/.pi/agent/prompts/*.md` and skills from directories under `~/.pi/agent/skills/` that contain `SKILL.md`.
+Pi discovers global prompt templates from `<PI_CODING_AGENT_DIR>/prompts/*.md` and skills from directories under `<PI_CODING_AGENT_DIR>/skills/` that contain `SKILL.md`. Without `PI_CODING_AGENT_DIR`, the default is `~/.pi/agent`.
 
 ## Verification
 
-Run these commands from the checkout after setup:
+Run these commands from the checkout after setup. Keep the variable on the same command, or export it in the current shell:
 
 ```bash
+export PI_CODING_AGENT_DIR="$PWD"
 jq empty settings.json models.json mcp.json package.json
 git diff --check
 pi list
 pi --no-session --no-context-files --list-models
+```
+
+To verify the default-directory workflow without changing the active config, use a temporary home directory:
+
+```bash
+HOME="$(mktemp -d)" ./setup.sh --merge-default
+find "$HOME/.pi/agent/skills" -name SKILL.md
 ```
 
 The last command confirms that Pi can load the configured provider/model catalog without starting a session. If you keep an existing global `settings.json`, verify the effective values with:

@@ -3,6 +3,18 @@ set -euo pipefail
 
 # Run from Linux, WSL, Git Bash, MSYS2, or Cygwin. The checkout is the Pi config.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEFAULT_AGENT_DIR="$HOME/.pi/agent"
+MERGE_DEFAULT=0
+
+case "${1:-}" in
+  "") ;;
+  --merge-default) MERGE_DEFAULT=1 ;;
+  *)
+    echo "Usage: $0 [--merge-default]" >&2
+    exit 2
+    ;;
+esac
+
 export PI_CODING_AGENT_DIR="${PI_CODING_AGENT_DIR:-$SCRIPT_DIR}"
 
 case "$(uname -s)" in
@@ -59,6 +71,32 @@ for package in "${PACKAGES[@]}"; do
   pi install "$package"
 done
 
+if [ "$MERGE_DEFAULT" -eq 1 ]; then
+  if [ "$PI_CODING_AGENT_DIR" = "$DEFAULT_AGENT_DIR" ]; then
+    echo "Default Pi config is already this checkout; merge skipped."
+  else
+    echo "Merging resources into $DEFAULT_AGENT_DIR (existing files are kept)"
+    mkdir -p "$DEFAULT_AGENT_DIR"
+    for resource in skills prompts extensions; do
+      if [ -d "$PI_CODING_AGENT_DIR/$resource" ]; then
+        mkdir -p "$DEFAULT_AGENT_DIR/$resource"
+        cp -rn "$PI_CODING_AGENT_DIR/$resource/." "$DEFAULT_AGENT_DIR/$resource/"
+      fi
+    done
+
+    for package in "${PACKAGES[@]}"; do
+      echo "Installing $package into the default Pi config"
+      PI_CODING_AGENT_DIR="$DEFAULT_AGENT_DIR" pi install "$package"
+    done
+  fi
+fi
+
 echo
 echo "Setup complete. Existing models.json and provider credentials were preserved."
-echo "Restart Pi to load the configuration."
+echo "This script cannot persist environment variables in the calling shell."
+if [ "$MERGE_DEFAULT" -eq 1 ]; then
+  echo "Start Pi with: pi"
+else
+  echo "Start Pi with: PI_CODING_AGENT_DIR=\"$PI_CODING_AGENT_DIR\" pi"
+  echo "To merge this checkout into the default config: $0 --merge-default"
+fi
