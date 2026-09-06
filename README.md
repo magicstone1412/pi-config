@@ -10,7 +10,9 @@ git clone git@github.com:magicstone1412/pi-config ~/.pi/agent
 cd ~/.pi/agent && ./setup.sh
 ```
 
-Add provider credentials to `auth.json` in the Pi config directory and restart Pi. `setup.sh` runs headlessly on Linux or on Windows through Git Bash, MSYS2, or Cygwin. It uses the checkout as `PI_CODING_AGENT_DIR`, creates only a missing `settings.json`, preserves existing `models.json` and provider credentials, installs the configured Git-backed packages, and does not install macOS Harness or link skills/prompts into Claude Code.
+`~/.pi/agent` is Pi's global configuration directory. If it already exists, do not clone over it: clone this repo elsewhere, set `PI_CODING_AGENT_DIR` to that checkout, and run `./setup.sh` from there, or merge the repo files into the existing directory first.
+
+Add provider credentials to `auth.json` in the Pi config directory and restart Pi. `setup.sh` runs headlessly on Linux or on Windows through Git Bash, MSYS2, or Cygwin. It installs the configured Git-backed packages and preserves existing `settings.json`, `models.json`, provider credentials, and installed packages. Existing settings therefore keep their provider/model defaults; the repo's non-package settings are only applied when you merge them yourself. The script intentionally skips `pi-macos-harness`, which is macOS-only. Run `./link-claude.sh` separately only if you also want the skills and prompts linked into Claude Code.
 
 ## Session-file workflow
 
@@ -73,16 +75,22 @@ Pi discovers global prompt templates from `~/.pi/agent/prompts/*.md` and skills 
 
 ## Verification
 
+Run these commands from the checkout after setup:
+
 ```bash
 jq empty settings.json models.json mcp.json package.json
-pi --no-extensions --no-context-files \
-  --skill ./skills/plan/SKILL.md \
-  --prompt-template ./prompts/plan.md \
-  --list-models gpt-5.6
 git diff --check
+pi list
+pi --no-session --no-context-files --list-models
 ```
 
-Also search the repository for names from the deleted extension and confirm no stale API or package references remain.
+The last command confirms that Pi can load the configured provider/model catalog without starting a session. If you keep an existing global `settings.json`, verify the effective values with:
+
+```bash
+jq '{defaultProvider, defaultModel, packages}' "${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/settings.json"
+```
+
+If package installation reports blocked install scripts or audit findings, review them before enabling scripts or applying automatic fixes; do not use `npm audit fix --force` as part of setup.
 
 ## Update
 
