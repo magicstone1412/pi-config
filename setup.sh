@@ -1,24 +1,30 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-EXPECTED_DIR="$HOME/.pi/agent"
+# Run from Linux, WSL, Git Bash, MSYS2, or Cygwin. The checkout is the Pi config.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export PI_CODING_AGENT_DIR="${PI_CODING_AGENT_DIR:-$SCRIPT_DIR}"
 
-if [ "$SCRIPT_DIR" != "$EXPECTED_DIR" ]; then
-  echo "⚠️  This repo should be cloned to ~/.pi/agent/"
-  echo "   Current location: $SCRIPT_DIR"
-  echo "   Expected: $EXPECTED_DIR"
-  echo ""
-  echo "   Run: git clone git@github.com:HazAT/pi-config $EXPECTED_DIR"
+case "$(uname -s)" in
+  Linux*|MINGW*|MSYS*|CYGWIN*) ;;
+  *)
+    echo "Unsupported platform: $(uname -s)" >&2
+    echo "Run setup.sh on Linux or Windows through Git Bash, MSYS2, or Cygwin." >&2
+    exit 1
+    ;;
+esac
+
+if ! command -v pi >/dev/null 2>&1; then
+  echo "Pi CLI not found. Install Pi first, then run setup.sh again." >&2
   exit 1
 fi
 
-echo "Setting up pi-config at $EXPECTED_DIR"
-echo ""
+cd "$PI_CODING_AGENT_DIR"
+echo "Setting up Pi config at $PI_CODING_AGENT_DIR"
 
-if [ ! -f "$EXPECTED_DIR/settings.json" ]; then
-  echo "Creating settings.json..."
-  cat > "$EXPECTED_DIR/settings.json" << 'EOF'
+# Create only missing configuration files. Existing models and credentials are never touched.
+if [ ! -f settings.json ]; then
+  cat > settings.json <<'EOF'
 {
   "lastChangelogVersion": "0.83.0",
   "defaultProvider": "openrouter",
@@ -27,7 +33,7 @@ if [ ! -f "$EXPECTED_DIR/settings.json" ]; then
   "packages": [
     "git:github.com/pasky/chrome-cdp-skill",
     "git:github.com/HazAT/pi-parallel",
-    "git:github.com/HazAT/pi-macos-harness"
+    "git:github.com/nicobailon/visual-explainer"
   ],
   "hideThinkingBlock": true,
   "enabledModels": [
@@ -37,37 +43,24 @@ if [ ! -f "$EXPECTED_DIR/settings.json" ]; then
   "theme": "dark"
 }
 EOF
+  echo "Created settings.json"
 else
-  echo "settings.json already exists — skipping creation"
+  echo "Keeping existing settings.json"
 fi
 
-echo ""
+# Keep this list explicit and portable. macOS Harness is intentionally excluded.
+PACKAGES=(
+  "git:github.com/pasky/chrome-cdp-skill"
+  "git:github.com/HazAT/pi-parallel"
+  "git:github.com/nicobailon/visual-explainer"
+)
 
-if ! command -v pi >/dev/null 2>&1; then
-  echo "pi CLI not found. Install pi, then run ./setup.sh again to install packages."
-  exit 1
-fi
+export CI="${CI:-1}"
+for package in "${PACKAGES[@]}"; do
+  echo "Installing $package"
+  pi install "$package"
+done
 
-echo "Installing configured packages..."
-pi install git:github.com/pasky/chrome-cdp-skill 2>/dev/null || echo "  chrome-cdp-skill already installed"
-pi install git:github.com/HazAT/pi-parallel 2>/dev/null || echo "  pi-parallel already installed"
-pi install git:github.com/HazAT/pi-macos-harness 2>/dev/null || echo "  pi-macos-harness already installed"
-echo ""
-
-if [ "$(uname -s)" = "Darwin" ]; then
-  if ! command -v uv >/dev/null 2>&1; then
-    echo "uv is required to install macOS Harness. Install uv, then run ./setup.sh again."
-    exit 1
-  fi
-  echo "Installing macOS Harness..."
-  uv tool install --python 3.12 --upgrade macos-harness
-  echo ""
-fi
-
-echo "Linking skills/prompts into Claude Code..."
-"$EXPECTED_DIR/link-claude.sh"
-echo ""
-
-echo "✅ Setup complete!"
-echo ""
-echo "Restart pi to pick up all changes."
+echo
+echo "Setup complete. Existing models.json and provider credentials were preserved."
+echo "Restart Pi to load the configuration."

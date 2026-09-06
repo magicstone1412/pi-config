@@ -6,11 +6,11 @@ Personal global [Pi](https://github.com/badlogic/pi-mono/tree/main/packages/codi
 
 ```bash
 mkdir -p ~/.pi
-git clone git@github.com:HazAT/pi-config ~/.pi/agent
+git clone git@github.com:magicstone1412/pi-config ~/.pi/agent
 cd ~/.pi/agent && ./setup.sh
 ```
 
-Add provider credentials to `~/.pi/agent/auth.json` and restart Pi. `setup.sh` requires this repository at `~/.pi/agent/`, preserves an existing `settings.json`, installs the configured Git-backed packages, and installs the [macOS Harness](https://github.com/browser-use/macos-harness) runtime with `uv` on macOS.
+Add provider credentials to `auth.json` in the Pi config directory and restart Pi. `setup.sh` runs headlessly on Linux or on Windows through Git Bash, MSYS2, or Cygwin. It uses the checkout as `PI_CODING_AGENT_DIR`, creates only a missing `settings.json`, preserves existing `models.json` and provider credentials, installs the configured Git-backed packages, and does not install macOS Harness or link skills/prompts into Claude Code.
 
 ## Session-file workflow
 
