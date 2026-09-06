@@ -32,7 +32,6 @@ if [ ! -f settings.json ]; then
   "defaultThinkingLevel": "high",
   "packages": [
     "git:github.com/pasky/chrome-cdp-skill",
-    "git:github.com/HazAT/pi-parallel",
     "git:github.com/nicobailon/visual-explainer"
   ],
   "hideThinkingBlock": true,
@@ -51,7 +50,6 @@ fi
 # Keep this list explicit and portable. macOS Harness is intentionally excluded.
 PACKAGES=(
   "git:github.com/pasky/chrome-cdp-skill"
-  "git:github.com/HazAT/pi-parallel"
   "git:github.com/nicobailon/visual-explainer"
 )
 
