@@ -4,7 +4,7 @@ set -euo pipefail
 # Run from Linux, WSL, Git Bash, MSYS2, or Cygwin. The checkout is the Pi config.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEFAULT_AGENT_DIR="$HOME/.pi/agent"
-MERGE_DEFAULT=0
+MERGE_DEFAULT=1
 
 case "${1:-}" in
   "") ;;
@@ -94,9 +94,4 @@ fi
 echo
 echo "Setup complete. Existing models.json and provider credentials were preserved."
 echo "This script cannot persist environment variables in the calling shell."
-if [ "$MERGE_DEFAULT" -eq 1 ]; then
-  echo "Start Pi with: pi"
-else
-  echo "Start Pi with: PI_CODING_AGENT_DIR=\"$PI_CODING_AGENT_DIR\" pi"
-  echo "To merge this checkout into the default config: $0 --merge-default"
-fi
+echo "Start Pi with: pi"

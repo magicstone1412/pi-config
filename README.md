@@ -10,9 +10,17 @@ git clone git@github.com:magicstone1412/pi-config ~/.pi/agent
 cd ~/.pi/agent && ./setup.sh
 ```
 
-`~/.pi/agent` is Pi's global configuration directory. If it already exists, do not clone over it: clone this repo elsewhere, set `PI_CODING_AGENT_DIR` to that checkout, and run `./setup.sh` from there, or merge the repo files into the existing directory first. `PI_CODING_AGENT_DIR` must also be set when starting Pi; an `export` inside `setup.sh` cannot persist after the script exits. If you prefer Pi's default directory, use `./setup.sh --merge-default` to merge this checkout into `~/.pi/agent` without overwriting existing files.
+`~/.pi/agent` is Pi's global configuration directory. If it already exists, do not clone over it: clone this repo elsewhere, set `PI_CODING_AGENT_DIR` to that checkout, and run `./setup.sh` from there, or merge the repo files into the existing directory first. `PI_CODING_AGENT_DIR` must also be set when starting Pi; an `export` inside `setup.sh` cannot persist after the script exits. `./setup.sh` merges this checkout into Pi's default directory, `~/.pi/agent`, without overwriting existing files.
 
-Add provider credentials to `auth.json` in the Pi config directory and start Pi with that directory selected, for example `PI_CODING_AGENT_DIR="$PWD" pi` in Git Bash or `$env:PI_CODING_AGENT_DIR = (Get-Location).Path; pi` in PowerShell. To use the default config directory instead, run `./setup.sh --merge-default` from this checkout, then start Pi normally with `pi`. The merge keeps existing files and only adds missing files under `skills/`, `prompts/`, and `extensions/`; it does not copy `settings.json`, `models.json`, `auth.json`, or `mcp.json`. `setup.sh` runs headlessly on Linux or on Windows through Git Bash, MSYS2, or Cygwin. It installs the configured Git-backed packages and preserves existing `settings.json`, `models.json`, provider credentials, and installed packages. Existing settings therefore keep their provider/model defaults; the repo's non-package settings are only applied when you merge them yourself. The script intentionally skips `pi-macos-harness`, which is macOS-only. Run `./link-claude.sh` separately only if you also want the skills and prompts linked into Claude Code.
+Add provider credentials to `auth.json` in the Pi config directory and start Pi with that directory selected, for example `PI_CODING_AGENT_DIR="$PWD" pi` in Git Bash or `$env:PI_CODING_AGENT_DIR = (Get-Location).Path; pi` in PowerShell. After setup, start Pi normally with `pi`. The merge keeps existing files and only adds missing files under `skills/`, `prompts/`, and `extensions/`; it does not copy `settings.json`, `models.json`, `auth.json`, or `mcp.json`. `setup.sh` runs headlessly on Linux or on Windows through Git Bash, MSYS2, or Cygwin. It installs the configured Git-backed packages and preserves existing `settings.json`, `models.json`, provider credentials, and installed packages. Existing settings therefore keep their provider/model defaults; the repo's non-package settings are only applied when you merge them yourself. The script intentionally skips `pi-macos-harness`, which is macOS-only. Run `./link-claude.sh` separately only if you also want the skills and prompts linked into Claude Code.
+
+## Agent installation prompt
+
+Use the following prompt to ask an agent to install this repository:
+
+```text
+Read this repository's README.md before doing anything. Install the Pi configuration by running ./setup.sh; this command merges the resources and packages into ~/.pi/agent by default while preserving existing settings.json, models.json, auth.json, and other configuration files. After installation, run the relevant verification checks from README.md, especially the JSON validation, git diff --check, pi list, and pi --no-session --no-context-files --list-models. Do not run npm audit fix --force. If the installation reports audit warnings or blocked install scripts, clearly include them in the result. Report the commands you ran, their results, and how to start Pi with pi.
+```
 
 ## Session-file workflow
 
@@ -88,7 +96,7 @@ pi --no-session --no-context-files --list-models
 To verify the default-directory workflow without changing the active config, use a temporary home directory:
 
 ```bash
-HOME="$(mktemp -d)" ./setup.sh --merge-default
+HOME="$(mktemp -d)" ./setup.sh
 find "$HOME/.pi/agent/skills" -name SKILL.md
 ```
 
